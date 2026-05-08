@@ -86,6 +86,16 @@ export type RecurringSchedule = UpcomingRecurringExpense & {
   history: RecurringOccurrenceEvent[]
 }
 
+export type PushSubscriptionRecord = {
+  id: string
+  userId: string
+  token: string
+  platform: string
+  deviceName?: string
+  createdAt: string
+  updatedAt: string
+}
+
 export type LedgerStore = {
   ensureAuthenticatedMember(input: AuthUser): Promise<Member>
   getLedger(): Promise<Ledger>
@@ -114,6 +124,8 @@ export type LedgerStore = {
   addExpenseComment(expenseId: string, input: ExpenseCommentInput, memberId: string): Promise<ExpenseComment>
   getExpenseDetails(expenseId: string): Promise<{ expense?: Expense; comments: ExpenseComment[]; history: ExpenseHistoryEvent[] }>
   recordSettlement(input: SettlementInput): Promise<Expense>
+  registerPushSubscription(input: { userId: string; token: string; platform: string; deviceName?: string }): Promise<PushSubscriptionRecord>
+  listPushSubscriptions(userIds: string[]): Promise<PushSubscriptionRecord[]>
   listRecurringSchedules(memberId: string, asOf?: string): Promise<RecurringSchedule[]>
   postRecurringOccurrence(sourceExpenseId: string, actorId: string): Promise<{ source: Expense; occurrence: Expense; event: RecurringOccurrenceEvent }>
   skipRecurringOccurrence(sourceExpenseId: string, actorId: string): Promise<{ source: Expense; event: RecurringOccurrenceEvent }>
@@ -158,6 +170,7 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
   const receipts: ReceiptRecord[] = []
   const receiptReviewEvents: ReceiptReviewEvent[] = []
   const recurringEvents: RecurringOccurrenceEvent[] = []
+  const pushSubscriptions: PushSubscriptionRecord[] = []
 
   for (const group of ledger.groups) {
     group.memberIds.forEach((memberId, index) => roles.set(`${group.id}:${memberId}`, index === 0 ? 'owner' : 'member'))
@@ -588,6 +601,27 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
       audit('settlement', expense.id, 'recorded', input)
       return expense
     },
+    async registerPushSubscription(input) {
+      const existing = pushSubscriptions.find((subscription) => subscription.token === input.token)
+      const timestamp = now()
+      if (existing) {
+        const updated = { ...existing, ...input, updatedAt: timestamp }
+        pushSubscriptions.splice(pushSubscriptions.indexOf(existing), 1, updated)
+        return structuredClone(updated)
+      }
+      const subscription = {
+        id: makeId('push'),
+        ...input,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }
+      pushSubscriptions.unshift(subscription)
+      return structuredClone(subscription)
+    },
+    async listPushSubscriptions(userIds) {
+      const userIdSet = new Set(userIds)
+      return structuredClone(pushSubscriptions.filter((subscription) => userIdSet.has(subscription.userId)))
+    },
     async listRecurringSchedules(memberId, asOf) {
       return ledger.expenses
         .filter((expense) => !expense.deletedAt && visibleExpense(expense, memberId))
@@ -777,6 +811,16 @@ type ReceiptReviewRow = {
   ocr_status: ReceiptRecord['ocrStatus']
   item_count: number
   created_at: string
+}
+
+type PushSubscriptionRow = {
+  id: string
+  user_id: string
+  token: string
+  platform: string
+  device_name?: string
+  created_at: string
+  updated_at: string
 }
 
 type RecurringOccurrenceRow = {
@@ -1572,6 +1616,42 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
         .run()
       await audit('settlement', expense.id, 'recorded', input)
       return expense
+    },
+    async registerPushSubscription(input) {
+      const existing = await db.prepare('SELECT id, created_at FROM push_subscriptions WHERE token = ?').bind(input.token).first<{ id: string; created_at: string }>()
+      const id = existing?.id ?? makeId('push')
+      const createdAt = existing?.created_at ?? now()
+      const updatedAt = now()
+      await db
+        .prepare('INSERT OR REPLACE INTO push_subscriptions (id, user_id, token, platform, device_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .bind(id, input.userId, input.token, input.platform, input.deviceName, createdAt, updatedAt)
+        .run()
+      return {
+        id,
+        userId: input.userId,
+        token: input.token,
+        platform: input.platform,
+        deviceName: input.deviceName,
+        createdAt,
+        updatedAt,
+      }
+    },
+    async listPushSubscriptions(userIds) {
+      if (!userIds.length) return []
+      const placeholders = userIds.map(() => '?').join(', ')
+      const result = await db
+        .prepare(`SELECT id, user_id, token, platform, device_name, created_at, updated_at FROM push_subscriptions WHERE user_id IN (${placeholders})`)
+        .bind(...userIds)
+        .all<PushSubscriptionRow>()
+      return result.results.map((row) => ({
+        id: row.id,
+        userId: row.user_id,
+        token: row.token,
+        platform: row.platform,
+        deviceName: row.device_name,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }))
     },
     async listRecurringSchedules(memberId, asOf) {
       const groups = await this.listGroups()

@@ -540,6 +540,68 @@ describe('SplitClub Worker API', () => {
     expect(outsiderBody.notifications.some((notification) => notification.id === message.notificationId)).toBe(false)
   })
 
+  test('registers push tokens and sends recurring due push payloads', async () => {
+    const env = createEnv()
+    const pushResponse = await request(
+      '/api/notifications/push-subscriptions',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          token: 'ExponentPushToken[test-kishan]',
+          platform: 'android',
+          deviceName: 'Pixel',
+        }),
+      },
+      env,
+    )
+    const pushBody = (await pushResponse.json()) as { subscription: { userId: string; token: string; platform: string } }
+    expect(pushResponse.status).toBe(201)
+    expect(pushBody.subscription).toMatchObject({
+      userId: 'kishan',
+      token: 'ExponentPushToken[test-kishan]',
+      platform: 'android',
+    })
+
+    const invalidResponse = await request('/api/notifications/push-subscriptions', { method: 'POST', body: JSON.stringify({ token: 'not-expo' }) }, env)
+    expect(invalidResponse.status).toBe(400)
+
+    const pushPayloads: unknown[] = []
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url === 'https://exp.host/--/api/v2/push/send') {
+        pushPayloads.push(JSON.parse(String(init?.body)))
+        return new Response(JSON.stringify({ data: [{ status: 'ok' }] }), { headers: { 'content-type': 'application/json' } })
+      }
+      return originalFetch(input, init)
+    }) as typeof fetch
+
+    try {
+      await deliverQueueMessages(env, [{
+        type: 'recurring.due',
+        notificationId: 'recurring:e3:2026-06-03',
+        sourceExpenseId: 'e3',
+        description: 'Monthly rent',
+        dueDate: '2026-06-03',
+        reminderDate: '2026-05-31',
+        amount: 60000,
+        currency: 'INR',
+        createdAt: '2026-05-31T03:00:00.000Z',
+      }])
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+
+    expect(pushPayloads).toHaveLength(1)
+    expect(pushPayloads[0]).toEqual([
+      expect.objectContaining({
+        to: 'ExponentPushToken[test-kishan]',
+        title: 'Recurring bill due',
+        body: 'Monthly rent · INR 60000.00',
+      }),
+    ])
+  })
+
   test('creates friends, invites members, and updates permissions', async () => {
     const env = createEnv()
 

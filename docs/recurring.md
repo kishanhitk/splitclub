@@ -9,10 +9,13 @@ SplitClub recurring bills are modeled as normal expenses with `recurrence` and o
 - `POST /api/recurring/:id/post` posts the next occurrence as a one-off expense, advances the source schedule date, records a `posted` occurrence event, and queues `recurring.posted`.
 - `POST /api/recurring/:id/skip` advances the source schedule date without creating an expense, records a `skipped` occurrence event, and queues `recurring.skipped`.
 - The Cloudflare Worker scheduled handler runs daily from `wrangler.toml` and queues `recurring.due` messages with deterministic `notificationId` values for schedules whose reminder date or due date has arrived.
-- The Worker queue consumer handles those messages idempotently, writes audit-backed recurring due notifications, and exposes them through `/api/notifications` for members who can see the source expense.
+- The Worker queue consumer handles those messages idempotently, writes audit-backed recurring due notifications, attempts Expo push delivery for registered visible members, and exposes them through `/api/notifications` for members who can see the source expense.
+- `POST /api/notifications/push-subscriptions` registers an Expo push token for the authenticated member so recurring due messages can attempt native delivery.
 
 Recurring occurrence history is stored in `migrations/0009_recurring_occurrences.sql`.
 
 ## App Flow
 
-The Recurring workspace keeps local notification scheduling and adds a compact cloud schedule section. Users can load cloud schedules, post the next server occurrence, or skip it without leaving the recurring workspace.
+The Recurring workspace keeps local notification scheduling and adds push registration plus a compact cloud schedule section. Users can register the current device, load cloud schedules, post the next server occurrence, or skip it without leaving the recurring workspace.
+
+Production Android builds still need the normal Expo/FCM push credentials configured for reliable store-track delivery.

@@ -65,10 +65,9 @@ SplitClub should cover the following Splitwise-style capabilities:
 - Receipt uploads can be stored in R2, opened from the cloud receipt library or a saved expense detail, listed with OCR review history, retried through Worker OCR, explicitly marked reviewed before saving, attached to saved expenses, and reused in expense creation with extracted line items.
 - GitHub CI verifies web/domain checks and Android debug APK builds for pull requests, then publishes installable debug APK artifacts.
 - A manual Android release workflow can build, zipalign, sign, verify, and upload signed APK artifacts when release keystore secrets are configured.
-- Recurring bills can be scheduled for reminders, loaded from the Worker, posted or skipped with server-visible history, advanced to their next due date, scanned by a daily Cloudflare scheduled handler, and delivered from Queue into scoped cloud notifications.
+- Recurring bills can be scheduled for reminders, loaded from the Worker, posted or skipped with server-visible history, advanced to their next due date, scanned by a daily Cloudflare scheduled handler, delivered from Queue into scoped cloud notifications, and sent to registered Expo push tokens for visible members.
 - Production Cloudflare setup has a repeatable provisioning script for D1/R2/Queue/OIDC secrets, remote migrations, deploy, and smoke checks, plus deploy workflow preflight guardrails for required secrets and Wrangler resource placeholders.
 
 ## Next Tickets
 
-- Native push or email delivery for recurring due bill notifications.
 - Store-track Android release packaging with Play App Signing or an equivalent distribution channel.
