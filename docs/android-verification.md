@@ -71,9 +71,9 @@ Download the `splitclub-android-debug-apk` artifact from a successful workflow r
 adb install app-debug.apk
 ```
 
-## Signed Release APK
+## Signed Release Artifacts
 
-`.github/workflows/android-release.yml` is a manual `workflow_dispatch` workflow for signed Android preview/release artifacts.
+`.github/workflows/android-release.yml` is a manual `workflow_dispatch` workflow for signed Android preview/release artifacts, including a signed APK for direct testing and a signed AAB for Play App Signing upload.
 
 Required repository or production-environment secrets:
 
@@ -82,9 +82,14 @@ Required repository or production-environment secrets:
 - `ANDROID_RELEASE_KEY_ALIAS`: signing key alias.
 - `ANDROID_RELEASE_KEY_PASSWORD`: signing key password.
 
-The workflow runs Bun install, Expo dependency alignment, typecheck, Bun tests, Expo Android prebuild, Gradle `assembleRelease`, Android build-tools `zipalign`, and Android build-tools `apksigner sign` plus `apksigner verify --print-certs`.
+The workflow runs Bun install, Expo dependency alignment, typecheck, Bun tests, Expo Android prebuild, Gradle `assembleRelease`, Gradle `bundleRelease`, Android build-tools `zipalign`, Android build-tools `apksigner sign` plus `apksigner verify --print-certs`, and Java `jarsigner` signing plus verification for the App Bundle.
 
-Successful runs upload a `splitclub-android-signed-apk` artifact containing `splitclub-release.apk` and `splitclub-release.apk.sha256`. The workflow fails before install/build work if any signing secret is missing.
+Successful runs upload:
+
+- `splitclub-android-signed-apk`: `splitclub-release.apk` and `splitclub-release.apk.sha256`.
+- `splitclub-android-signed-aab`: `splitclub-release.aab` and `splitclub-release.aab.sha256`.
+
+Use the AAB for Play Console release tracks with Play App Signing enabled. Use the APK for direct device smoke testing or non-store distribution. The workflow fails before install/build work if any signing secret is missing.
 
 ## Current Local Result
 
