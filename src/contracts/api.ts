@@ -40,6 +40,10 @@ export const receiptItemSchema = z.object({
   assignedTo: z.array(z.string().min(1)).default([]),
 })
 
+export const expenseCommentSchema = z.object({
+  body: z.string().trim().min(1).max(1000),
+})
+
 export const expenseSchema = z.object({
   id: z.string().min(1).optional(),
   groupId: z.string().min(1).nullable(),
@@ -57,6 +61,25 @@ export const expenseSchema = z.object({
   attachmentName: z.string().optional(),
   receiptItems: z.array(receiptItemSchema).default([]),
   recurrence: recurrenceSchema.default('none'),
+  reminderDays: z.number().int().nonnegative().optional(),
+})
+
+export const expenseUpdateSchema = z.object({
+  groupId: z.string().min(1).nullable().optional(),
+  description: z.string().min(1).optional(),
+  amount: z.number().positive().optional(),
+  currency: z.string().length(3).transform((value) => value.toUpperCase()).optional(),
+  paidBy: z.string().min(1).optional(),
+  participants: z.array(z.string().min(1)).min(1).optional(),
+  splitMode: splitModeSchema.optional(),
+  splits: z.array(splitShareSchema).optional(),
+  category: z.string().min(1).optional(),
+  kind: expenseKindSchema.optional(),
+  date: z.string().min(1).optional(),
+  notes: z.string().optional(),
+  attachmentName: z.string().optional(),
+  receiptItems: z.array(receiptItemSchema).optional(),
+  recurrence: recurrenceSchema.optional(),
   reminderDays: z.number().int().nonnegative().optional(),
 })
 
@@ -118,6 +141,8 @@ export type FriendInput = z.infer<typeof friendSchema>
 export type GroupInviteInput = z.infer<typeof groupInviteSchema>
 export type MembershipInput = z.infer<typeof membershipSchema>
 export type ExpenseInput = z.infer<typeof expenseSchema>
+export type ExpenseUpdateInput = z.infer<typeof expenseUpdateSchema>
+export type ExpenseCommentInput = z.infer<typeof expenseCommentSchema>
 export type SettlementInput = z.infer<typeof settlementSchema>
 export type AuthUser = z.infer<typeof authUserSchema>
 export type AuthSession = z.infer<typeof authSessionSchema>

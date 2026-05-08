@@ -205,6 +205,61 @@ describe('SplitClub Worker API', () => {
     expect(receiptObjects.at(-1)?.contentType).toBe('image/jpeg')
   })
 
+  test('updates comments deletes restores and returns expense history', async () => {
+    const env = createEnv()
+
+    const commentResponse = await request(
+      '/api/expenses/e2/comments',
+      {
+        method: 'POST',
+        body: JSON.stringify({ body: 'Please attach the final bill.' }),
+      },
+      env,
+    )
+    const commentBody = (await commentResponse.json()) as { comment: { body: string; memberId: string } }
+    expect(commentResponse.status).toBe(201)
+    expect(commentBody.comment).toMatchObject({ body: 'Please attach the final bill.', memberId: 'kishan' })
+
+    const updateResponse = await request(
+      '/api/expenses/e2',
+      {
+        method: 'PUT',
+        body: JSON.stringify({ description: 'Dinner at Martins, final bill', amount: 7000 }),
+      },
+      env,
+    )
+    const updateBody = (await updateResponse.json()) as {
+      expense: { description: string; amount: number; splitMode: string; category: string; receiptItems: unknown[] }
+    }
+    expect(updateResponse.status).toBe(200)
+    expect(updateBody.expense.description).toBe('Dinner at Martins, final bill')
+    expect(updateBody.expense.amount).toBe(7000)
+    expect(updateBody.expense.splitMode).toBe('percent')
+    expect(updateBody.expense.category).toBe('Food')
+    expect(updateBody.expense.receiptItems).toHaveLength(3)
+
+    const detailResponse = await request('/api/expenses/e2', {}, env)
+    const detailBody = (await detailResponse.json()) as { comments: unknown[]; history: Array<{ action: string }> }
+    expect(detailBody.comments).toHaveLength(1)
+    expect(detailBody.history.map((event) => event.action)).toContain('commented')
+    expect(detailBody.history.map((event) => event.action)).toContain('updated')
+
+    const deleteResponse = await request('/api/expenses/e2', { method: 'DELETE' }, env)
+    const deleteBody = (await deleteResponse.json()) as { expense: { deletedAt?: string } }
+    expect(deleteResponse.status).toBe(200)
+    expect(deleteBody.expense.deletedAt).toBeTruthy()
+
+    const searchResponse = await request('/api/search?q=martins&groupId=goa', {}, env)
+    const searchBody = (await searchResponse.json()) as { expenses: unknown[] }
+    expect(searchBody.expenses).toHaveLength(0)
+
+    const restoreResponse = await request('/api/expenses/e2/restore', { method: 'POST' }, env)
+    const restoreBody = (await restoreResponse.json()) as { expense: { deletedAt?: string; history: Array<{ action: string }> } }
+    expect(restoreResponse.status).toBe(200)
+    expect(restoreBody.expense.deletedAt).toBeUndefined()
+    expect(restoreBody.expense.history.map((event) => event.action)).toContain('restored')
+  })
+
   test('exposes sync payload and validation errors', async () => {
     const env = createEnv()
 

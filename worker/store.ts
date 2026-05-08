@@ -1,8 +1,10 @@
-import type { Expense, Group, Ledger, Member } from '../src/domain/split'
+import type { Expense, ExpenseComment, ExpenseHistoryEvent, Group, Ledger, Member } from '../src/domain/split'
 import type { ExtractedReceiptItem } from '../src/domain/receipts'
 import type {
   AuthUser,
   ExpenseInput,
+  ExpenseCommentInput,
+  ExpenseUpdateInput,
   FriendInput,
   GroupInput,
   GroupInviteInput,
@@ -71,6 +73,11 @@ export type LedgerStore = {
   removeMembership(groupId: string, userId: string): Promise<void>
   listExpenses(filters?: { groupId?: string | null; q?: string }): Promise<Expense[]>
   createExpense(input: ExpenseInput): Promise<Expense>
+  updateExpense(expenseId: string, input: ExpenseUpdateInput, actorId?: string): Promise<Expense>
+  deleteExpense(expenseId: string, actorId?: string): Promise<Expense>
+  restoreExpense(expenseId: string, actorId?: string): Promise<Expense>
+  addExpenseComment(expenseId: string, input: ExpenseCommentInput, memberId: string): Promise<ExpenseComment>
+  getExpenseDetails(expenseId: string): Promise<{ expense?: Expense; comments: ExpenseComment[]; history: ExpenseHistoryEvent[] }>
   recordSettlement(input: SettlementInput): Promise<Expense>
   createReceipt(input: Omit<ReceiptRecord, 'createdAt'>): Promise<ReceiptRecord>
   listReceipts(ownerId: string): Promise<ReceiptRecord[]>
@@ -79,6 +86,17 @@ export type LedgerStore = {
 
 const now = () => new Date().toISOString()
 const makeId = (prefix: string) => `${prefix}_${crypto.randomUUID()}`
+const historySummary = (action: string, payload: unknown) => {
+  if (action === 'created') return 'Expense created'
+  if (action === 'updated') return 'Expense updated'
+  if (action === 'commented') {
+    const body = typeof payload === 'object' && payload && 'body' in payload ? String((payload as { body?: unknown }).body ?? '') : ''
+    return body ? `Comment added: ${body}` : 'Comment added'
+  }
+  if (action === 'deleted') return 'Expense deleted'
+  if (action === 'restored') return 'Expense restored'
+  return action
+}
 
 export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
   let ledger: Ledger = structuredClone(initialLedger)
@@ -91,8 +109,48 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
     group.memberIds.forEach((memberId, index) => roles.set(`${group.id}:${memberId}`, index === 0 ? 'owner' : 'member'))
   }
 
-  const audit = (entityType: string, entityId: string, action: string, payload: unknown) => {
-    auditEvents.unshift({ id: makeId('audit'), entityType, entityId, action, payload, createdAt: now() })
+  const audit = (entityType: string, entityId: string, action: string, payload: unknown, actorId?: string) => {
+    auditEvents.unshift({ id: makeId('audit'), actorId, entityType, entityId, action, payload, createdAt: now() })
+  }
+
+  const expenseHistory = (expenseId: string): ExpenseHistoryEvent[] =>
+    auditEvents
+      .filter((event) => event.entityType === 'expense' && event.entityId === expenseId)
+      .map((event) => ({
+        id: event.id,
+        expenseId,
+        memberId: event.actorId,
+        action: event.action as ExpenseHistoryEvent['action'],
+        summary: historySummary(event.action, event.payload),
+        createdAt: event.createdAt,
+      }))
+
+  const expenseComments = (expenseId: string): ExpenseComment[] =>
+    ledger.expenses.find((expense) => expense.id === expenseId)?.comments ?? []
+
+  const decorateExpense = (expense: Expense): Expense => ({
+    ...expense,
+    comments: expenseComments(expense.id),
+    history: expenseHistory(expense.id),
+  })
+
+  const findExpense = (expenseId: string) => ledger.expenses.find((expense) => expense.id === expenseId)
+
+  const applyExpensePatch = (expense: Expense, input: ExpenseUpdateInput): Expense => {
+    const receiptItems = input.receiptItems?.map((item) => ({
+      id: item.id ?? makeId('receipt_item'),
+      label: item.label,
+      amount: item.amount,
+      assignedTo: item.assignedTo,
+    }))
+    return {
+      ...expense,
+      ...input,
+      groupId: input.groupId === undefined ? expense.groupId : input.groupId,
+      participants: input.participants ?? expense.participants,
+      splits: input.splits ?? expense.splits,
+      receiptItems: receiptItems ?? expense.receiptItems,
+    }
   }
 
   return {
@@ -108,7 +166,7 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
       })
     },
     async getLedger() {
-      return structuredClone(ledger)
+      return structuredClone({ ...ledger, expenses: ledger.expenses.map(decorateExpense) })
     },
     async listMembers() {
       return structuredClone(ledger.members)
@@ -193,13 +251,14 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
     async listExpenses(filters = {}) {
       const q = filters.q?.trim().toLowerCase()
       const expenses = ledger.expenses.filter((expense) => {
+        if (expense.deletedAt) return false
         if ('groupId' in filters && expense.groupId !== filters.groupId) return false
         if (!q) return true
         return [expense.description, expense.category, expense.notes, expense.currency, expense.attachmentName]
           .filter(Boolean)
           .some((value) => value?.toLowerCase().includes(q))
       })
-      return structuredClone(expenses)
+      return structuredClone(expenses.map(decorateExpense))
     },
     async createExpense(input) {
       const expense: Expense = {
@@ -225,10 +284,72 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
         })),
         recurrence: input.recurrence,
         reminderDays: input.reminderDays,
+        comments: [],
+        history: [],
       }
       ledger = { ...ledger, expenses: [expense, ...ledger.expenses] }
       audit('expense', expense.id, 'created', expense)
-      return structuredClone(expense)
+      return structuredClone(decorateExpense(expense))
+    },
+    async updateExpense(expenseId, input, actorId) {
+      const existing = findExpense(expenseId)
+      if (!existing) throw new Error('Expense not found')
+      const updated = applyExpensePatch(existing, input)
+      ledger = {
+        ...ledger,
+        expenses: ledger.expenses.map((expense) => (expense.id === expenseId ? updated : expense)),
+      }
+      audit('expense', expenseId, 'updated', { before: existing, after: updated }, actorId)
+      return structuredClone(decorateExpense(updated))
+    },
+    async deleteExpense(expenseId, actorId) {
+      const existing = findExpense(expenseId)
+      if (!existing) throw new Error('Expense not found')
+      const deletedAt = now()
+      const deleted = { ...existing, deletedAt }
+      ledger = {
+        ...ledger,
+        expenses: ledger.expenses.map((expense) => (expense.id === expenseId ? deleted : expense)),
+      }
+      audit('expense', expenseId, 'deleted', { deletedAt }, actorId)
+      return structuredClone(decorateExpense(deleted))
+    },
+    async restoreExpense(expenseId, actorId) {
+      const existing = findExpense(expenseId)
+      if (!existing) throw new Error('Expense not found')
+      const restored = { ...existing, deletedAt: undefined }
+      ledger = {
+        ...ledger,
+        expenses: ledger.expenses.map((expense) => (expense.id === expenseId ? restored : expense)),
+      }
+      audit('expense', expenseId, 'restored', restored, actorId)
+      return structuredClone(decorateExpense(restored))
+    },
+    async addExpenseComment(expenseId, input, memberId) {
+      const existing = findExpense(expenseId)
+      if (!existing) throw new Error('Expense not found')
+      const comment: ExpenseComment = {
+        id: makeId('comment'),
+        expenseId,
+        memberId,
+        body: input.body,
+        createdAt: now(),
+      }
+      const updated = { ...existing, comments: [...(existing.comments ?? []), comment] }
+      ledger = {
+        ...ledger,
+        expenses: ledger.expenses.map((expense) => (expense.id === expenseId ? updated : expense)),
+      }
+      audit('expense', expenseId, 'commented', comment, memberId)
+      return structuredClone(comment)
+    },
+    async getExpenseDetails(expenseId) {
+      const expense = findExpense(expenseId)
+      return {
+        expense: expense ? structuredClone(decorateExpense(expense)) : undefined,
+        comments: structuredClone(expenseComments(expenseId)),
+        history: structuredClone(expenseHistory(expenseId)),
+      }
     },
     async recordSettlement(input) {
       const expense = await this.createExpense({
@@ -300,6 +421,7 @@ type ExpenseRow = {
   attachment_name?: string
   recurrence?: Expense['recurrence']
   reminder_days?: number
+  deleted_at?: string
 }
 
 type ReceiptRow = {
@@ -312,6 +434,14 @@ type ReceiptRow = {
   size_bytes: number
   ocr_status: ReceiptRecord['ocrStatus']
   ocr_text?: string
+  created_at: string
+}
+
+type ExpenseCommentRow = {
+  id: string
+  expense_id: string
+  member_id: string
+  body: string
   created_at: string
 }
 
@@ -348,6 +478,35 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
     )
   }
 
+  const listComments = async (expenseId: string): Promise<ExpenseComment[]> => {
+    const result = await db
+      .prepare('SELECT id, expense_id, member_id, body, created_at FROM expense_comments WHERE expense_id = ? AND deleted_at IS NULL ORDER BY created_at ASC')
+      .bind(expenseId)
+      .all<ExpenseCommentRow>()
+    return result.results.map((row) => ({
+      id: row.id,
+      expenseId: row.expense_id,
+      memberId: row.member_id,
+      body: row.body,
+      createdAt: row.created_at,
+    }))
+  }
+
+  const listExpenseHistory = async (expenseId: string): Promise<ExpenseHistoryEvent[]> => {
+    const result = await db
+      .prepare('SELECT id, actor_id, action, payload_json, created_at FROM audit_events WHERE entity_type = ? AND entity_id = ? ORDER BY created_at DESC')
+      .bind('expense', expenseId)
+      .all<{ id: string; actor_id?: string; action: string; payload_json: string; created_at: string }>()
+    return result.results.map((row) => ({
+      id: row.id,
+      expenseId,
+      memberId: row.actor_id,
+      action: row.action as ExpenseHistoryEvent['action'],
+      summary: historySummary(row.action, JSON.parse(row.payload_json)),
+      createdAt: row.created_at,
+    }))
+  }
+
   const toExpense = async (row: ExpenseRow): Promise<Expense> => ({
     id: row.id,
     groupId: row.group_id,
@@ -366,12 +525,15 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
     receiptItems: await listReceiptItems(row.id),
     recurrence: row.recurrence,
     reminderDays: row.reminder_days,
+    comments: await listComments(row.id),
+    history: await listExpenseHistory(row.id),
+    deletedAt: row.deleted_at,
   })
 
-  const audit = async (entityType: string, entityId: string, action: string, payload: unknown) => {
+  const audit = async (entityType: string, entityId: string, action: string, payload: unknown, actorId?: string) => {
     await db
-      .prepare('INSERT INTO audit_events (id, entity_type, entity_id, action, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-      .bind(makeId('audit'), entityType, entityId, action, JSON.stringify(payload), now())
+      .prepare('INSERT INTO audit_events (id, actor_id, entity_type, entity_id, action, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind(makeId('audit'), actorId, entityType, entityId, action, JSON.stringify(payload), now())
       .run()
   }
 
@@ -397,6 +559,28 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
         assignedTo: JSON.parse(item.assigned_to_json) as string[],
       })),
       createdAt: row.created_at,
+    }
+  }
+
+  const findExpenseRow = async (expenseId: string, includeDeleted = false) => {
+    const clause = includeDeleted ? 'id = ?' : 'id = ? AND deleted_at IS NULL'
+    return db.prepare(`SELECT * FROM expenses WHERE ${clause}`).bind(expenseId).first<ExpenseRow>()
+  }
+
+  const replaceExpenseChildren = async (expenseId: string, input: Pick<ExpenseInput, 'participants' | 'splits' | 'receiptItems'>) => {
+    await db.prepare('DELETE FROM expense_participants WHERE expense_id = ?').bind(expenseId).run()
+    await db.prepare('DELETE FROM expense_splits WHERE expense_id = ?').bind(expenseId).run()
+    const existingItems = await db.prepare('SELECT id FROM receipt_items WHERE expense_id = ?').bind(expenseId).all<{ id: string }>()
+    await Promise.all(
+      existingItems.results.map((item) => db.prepare('DELETE FROM receipt_item_assignments WHERE receipt_item_id = ?').bind(item.id).run()),
+    )
+    await db.prepare('DELETE FROM receipt_items WHERE expense_id = ?').bind(expenseId).run()
+    await Promise.all(input.participants.map((memberId) => db.prepare('INSERT INTO expense_participants (expense_id, user_id) VALUES (?, ?)').bind(expenseId, memberId).run()))
+    await Promise.all(input.splits.map((split) => db.prepare('INSERT INTO expense_splits (expense_id, user_id, value) VALUES (?, ?, ?)').bind(expenseId, split.memberId, split.value).run()))
+    for (const item of input.receiptItems) {
+      const itemId = item.id ?? makeId('receipt_item')
+      await db.prepare('INSERT INTO receipt_items (id, expense_id, label, amount) VALUES (?, ?, ?, ?)').bind(itemId, expenseId, item.label, item.amount).run()
+      await Promise.all(item.assignedTo.map((memberId) => db.prepare('INSERT INTO receipt_item_assignments (receipt_item_id, user_id) VALUES (?, ?)').bind(itemId, memberId).run()))
     }
   }
 
@@ -655,6 +839,99 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
       }
       await audit('expense', expenseId, 'created', input)
       return toExpense({ id: expenseId, group_id: input.groupId, description: input.description, amount: input.amount, currency: input.currency, paid_by: input.paidBy, split_mode: input.splitMode, category: input.category, kind: input.kind, date: input.date, notes: input.notes, attachment_name: input.attachmentName, recurrence: input.recurrence, reminder_days: input.reminderDays })
+    },
+    async updateExpense(expenseId, input, actorId) {
+      const row = await findExpenseRow(expenseId)
+      if (!row) throw new Error('Expense not found')
+      const existing = await toExpense(row)
+      const updated: ExpenseInput = {
+        groupId: input.groupId === undefined ? existing.groupId : input.groupId,
+        description: input.description ?? existing.description,
+        amount: input.amount ?? existing.amount,
+        currency: input.currency ?? existing.currency,
+        paidBy: input.paidBy ?? existing.paidBy,
+        participants: input.participants ?? existing.participants,
+        splitMode: input.splitMode ?? existing.splitMode,
+        splits: input.splits ?? existing.splits,
+        category: input.category ?? existing.category,
+        kind: input.kind ?? existing.kind,
+        date: input.date ?? existing.date,
+        notes: input.notes ?? existing.notes,
+        attachmentName: input.attachmentName ?? existing.attachmentName,
+        receiptItems: input.receiptItems ?? existing.receiptItems ?? [],
+        recurrence: input.recurrence ?? existing.recurrence ?? 'none',
+        reminderDays: input.reminderDays ?? existing.reminderDays,
+      }
+      await db
+        .prepare(
+          'UPDATE expenses SET group_id = ?, description = ?, amount = ?, currency = ?, paid_by = ?, split_mode = ?, category = ?, kind = ?, date = ?, notes = ?, attachment_name = ?, recurrence = ?, reminder_days = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        )
+        .bind(
+          updated.groupId,
+          updated.description,
+          updated.amount,
+          updated.currency,
+          updated.paidBy,
+          updated.splitMode,
+          updated.category,
+          updated.kind,
+          updated.date,
+          updated.notes,
+          updated.attachmentName,
+          updated.recurrence,
+          updated.reminderDays,
+          expenseId,
+        )
+        .run()
+      await replaceExpenseChildren(expenseId, updated)
+      await audit('expense', expenseId, 'updated', { before: existing, after: updated }, actorId)
+      const updatedRow = await findExpenseRow(expenseId)
+      if (!updatedRow) throw new Error('Expense was not updated')
+      return toExpense(updatedRow)
+    },
+    async deleteExpense(expenseId, actorId) {
+      const row = await findExpenseRow(expenseId)
+      if (!row) throw new Error('Expense not found')
+      const deletedAt = now()
+      await db.prepare('UPDATE expenses SET deleted_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(deletedAt, expenseId).run()
+      await audit('expense', expenseId, 'deleted', { deletedAt }, actorId)
+      const deletedRow = await findExpenseRow(expenseId, true)
+      if (!deletedRow) throw new Error('Expense was not deleted')
+      return toExpense(deletedRow)
+    },
+    async restoreExpense(expenseId, actorId) {
+      const row = await findExpenseRow(expenseId, true)
+      if (!row) throw new Error('Expense not found')
+      await db.prepare('UPDATE expenses SET deleted_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(expenseId).run()
+      await audit('expense', expenseId, 'restored', { restoredAt: now() }, actorId)
+      const restoredRow = await findExpenseRow(expenseId)
+      if (!restoredRow) throw new Error('Expense was not restored')
+      return toExpense(restoredRow)
+    },
+    async addExpenseComment(expenseId, input, memberId) {
+      const row = await findExpenseRow(expenseId)
+      if (!row) throw new Error('Expense not found')
+      const comment: ExpenseComment = {
+        id: makeId('comment'),
+        expenseId,
+        memberId,
+        body: input.body,
+        createdAt: now(),
+      }
+      await db
+        .prepare('INSERT INTO expense_comments (id, expense_id, member_id, body, created_at) VALUES (?, ?, ?, ?, ?)')
+        .bind(comment.id, expenseId, memberId, comment.body, comment.createdAt)
+        .run()
+      await audit('expense', expenseId, 'commented', comment, memberId)
+      return comment
+    },
+    async getExpenseDetails(expenseId) {
+      const row = await findExpenseRow(expenseId, true)
+      return {
+        expense: row ? await toExpense(row) : undefined,
+        comments: await listComments(expenseId),
+        history: await listExpenseHistory(expenseId),
+      }
     },
     async recordSettlement(input) {
       const expense = await this.createExpense({

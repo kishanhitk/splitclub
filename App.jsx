@@ -17,6 +17,8 @@ import {
   LogIn,
   LogOut,
   ListFilter,
+  MessageCircle,
+  Pencil,
   Plus,
   ReceiptText,
   RefreshCcw,
@@ -24,6 +26,7 @@ import {
   Search,
   Settings,
   TrendingUp,
+  Trash2,
   UserCircle,
   Users,
   WalletCards,
@@ -95,6 +98,10 @@ function SplitClubApp() {
   const [activeTab, setActiveTab] = useState('activity')
   const [moreSection, setMoreSection] = useState('account')
   const [query, setQuery] = useState('')
+  const [selectedExpenseId, setSelectedExpenseId] = useState(null)
+  const [commentDraft, setCommentDraft] = useState('Looks good to me.')
+  const [detailDescription, setDetailDescription] = useState('')
+  const [detailAmount, setDetailAmount] = useState('')
   const [splitMode, setSplitMode] = useState('equal')
   const [amount, setAmount] = useState('3600')
   const [description, setDescription] = useState('Airport cab')
@@ -165,6 +172,10 @@ function SplitClubApp() {
     ? ledger.members.filter((member) => selectedGroup.memberIds.includes(member.id))
     : ledger.members.slice(0, 2)
   const visibleExpenses = useMemo(() => searchExpenses(ledger, query), [ledger, query])
+  const selectedExpense = useMemo(
+    () => ledger.expenses.find((expense) => expense.id === selectedExpenseId) ?? null,
+    [ledger.expenses, selectedExpenseId],
+  )
   const balances = useMemo(() => calculateBalances(ledger, selectedGroupId, currency), [ledger, selectedGroupId, currency])
   const settlements = useMemo(() => simplifyDebts(balances, currency), [balances, currency])
   const categoryTotals = useMemo(
@@ -176,8 +187,9 @@ function SplitClubApp() {
     [ledger, selectedGroupId, currency],
   )
   const totalSpending = categoryTotals.reduce((sum, item) => sum + item.amount, 0)
-  const currentTitle =
-    activeTab === 'settings'
+  const currentTitle = selectedExpense
+    ? 'Expense'
+    : activeTab === 'settings'
       ? moreDestinations.find((item) => item.id === moreSection)?.label ?? 'More'
       : navItems.find((item) => item.id === activeTab)?.label ?? 'Activity'
   const splitPreview = useMemo(
@@ -203,6 +215,26 @@ function SplitClubApp() {
         }
       : ledger.members[0])
   const selectedRole = selectedGroupId ? membershipRoles[selectedGroupId]?.[activeUserId] ?? 'viewer' : 'member'
+
+  const lifecycleEvent = (expenseId, action, summary) => ({
+    id: `history-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    expenseId,
+    memberId: activeUser.id,
+    action,
+    summary,
+    createdAt: new Date().toISOString(),
+  })
+
+  const openExpense = (expense) => {
+    setSelectedExpenseId(expense.id)
+    setDetailDescription(expense.description)
+    setDetailAmount(String(expense.amount))
+    setCommentDraft('Looks good to me.')
+  }
+
+  const closeExpense = () => {
+    setSelectedExpenseId(null)
+  }
 
   const signIn = async () => {
     const config = getAuthProviderConfig()
@@ -345,11 +377,110 @@ function SplitClubApp() {
       })),
       recurrence,
       reminderDays: recurrence === 'none' ? undefined : Number(reminderDays || 0),
+      comments: [],
+      history: [],
     }
+    expense.history = [lifecycleEvent(expense.id, 'created', `${activeUser.name} created this expense`)]
 
     setLedger((current) => ({ ...current, expenses: [expense, ...current.expenses] }))
     setSyncState('Saved locally')
     setActiveTab('activity')
+    openExpense(expense)
+  }
+
+  const updateSelectedExpense = () => {
+    if (!selectedExpense) return
+    const numericAmount = Number(detailAmount)
+    if (!detailDescription.trim() || Number.isNaN(numericAmount) || numericAmount <= 0) {
+      Alert.alert('Check the edit', 'Description and amount are required.')
+      return
+    }
+    setLedger((current) => ({
+      ...current,
+      expenses: current.expenses.map((expense) =>
+        expense.id === selectedExpense.id
+          ? {
+              ...expense,
+              description: detailDescription.trim(),
+              amount: roundMoney(numericAmount),
+              history: [
+                lifecycleEvent(expense.id, 'updated', `${activeUser.name} updated description or amount`),
+                ...(expense.history ?? []),
+              ],
+            }
+          : expense,
+      ),
+    }))
+    setSyncState('Expense updated')
+  }
+
+  const addExpenseComment = () => {
+    if (!selectedExpense || !commentDraft.trim()) return
+    const comment = {
+      id: `comment-${Date.now()}`,
+      expenseId: selectedExpense.id,
+      memberId: activeUser.id,
+      body: commentDraft.trim(),
+      createdAt: new Date().toISOString(),
+    }
+    setLedger((current) => ({
+      ...current,
+      expenses: current.expenses.map((expense) =>
+        expense.id === selectedExpense.id
+          ? {
+              ...expense,
+              comments: [...(expense.comments ?? []), comment],
+              history: [
+                lifecycleEvent(expense.id, 'commented', `${activeUser.name} commented`),
+                ...(expense.history ?? []),
+              ],
+            }
+          : expense,
+      ),
+    }))
+    setCommentDraft('')
+    setSyncState('Comment added')
+  }
+
+  const deleteSelectedExpense = () => {
+    if (!selectedExpense) return
+    const deletedAt = new Date().toISOString()
+    setLedger((current) => ({
+      ...current,
+      expenses: current.expenses.map((expense) =>
+        expense.id === selectedExpense.id
+          ? {
+              ...expense,
+              deletedAt,
+              history: [
+                lifecycleEvent(expense.id, 'deleted', `${activeUser.name} deleted this expense`),
+                ...(expense.history ?? []),
+              ],
+            }
+          : expense,
+      ),
+    }))
+    setSyncState('Expense deleted')
+  }
+
+  const restoreSelectedExpense = () => {
+    if (!selectedExpense) return
+    setLedger((current) => ({
+      ...current,
+      expenses: current.expenses.map((expense) =>
+        expense.id === selectedExpense.id
+          ? {
+              ...expense,
+              deletedAt: undefined,
+              history: [
+                lifecycleEvent(expense.id, 'restored', `${activeUser.name} restored this expense`),
+                ...(expense.history ?? []),
+              ],
+            }
+          : expense,
+      ),
+    }))
+    setSyncState('Expense restored')
   }
 
   const addReceiptItem = () => {
@@ -611,6 +742,19 @@ function SplitClubApp() {
     setSelectedGroupId,
     activeTab,
     setActiveTab,
+    selectedExpense,
+    openExpense,
+    closeExpense,
+    commentDraft,
+    setCommentDraft,
+    detailDescription,
+    setDetailDescription,
+    detailAmount,
+    setDetailAmount,
+    updateSelectedExpense,
+    addExpenseComment,
+    deleteSelectedExpense,
+    restoreSelectedExpense,
     moreSection,
     setMoreSection,
     query,
@@ -699,15 +843,19 @@ function SplitClubApp() {
         <YStack flex={1} maxWidth={820} width="100%" alignSelf="center">
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 104 }}>
             <YStack gap="$3" px="$4" pt="$3">
-              {activeTab === 'activity' && <ActivityScreen state={appState} />}
-              {activeTab === 'groups' && <GroupsScreen state={appState} />}
-              {activeTab === 'add' && <AddExpenseScreen state={appState} />}
-              {activeTab === 'balances' && <BalancesScreen state={appState} />}
-              {activeTab === 'settings' && <MoreScreen state={appState} />}
+              {selectedExpense ? <ExpenseDetailScreen state={appState} /> : null}
+              {!selectedExpense && activeTab === 'activity' && <ActivityScreen state={appState} />}
+              {!selectedExpense && activeTab === 'groups' && <GroupsScreen state={appState} />}
+              {!selectedExpense && activeTab === 'add' && <AddExpenseScreen state={appState} />}
+              {!selectedExpense && activeTab === 'balances' && <BalancesScreen state={appState} />}
+              {!selectedExpense && activeTab === 'settings' && <MoreScreen state={appState} />}
             </YStack>
           </ScrollView>
         </YStack>
-        <BottomNav activeTab={activeTab} onChange={setActiveTab} />
+        <BottomNav activeTab={activeTab} onChange={(tab) => {
+          setSelectedExpenseId(null)
+          setActiveTab(tab)
+        }} />
       </YStack>
     </SafeAreaView>
   )
@@ -822,8 +970,124 @@ function ActivityScreen({ state }) {
 
       <Panel title="Recent activity" actionLabel="Add" onAction={() => state.setActiveTab('add')}>
         {state.visibleExpenses.slice(0, 8).map((expense) => (
-          <ExpenseRow key={expense.id} expense={expense} />
+          <ExpenseRow key={expense.id} expense={expense} onPress={() => state.openExpense(expense)} />
         ))}
+      </Panel>
+    </>
+  )
+}
+
+function ExpenseDetailScreen({ state }) {
+  const expense = state.selectedExpense
+  if (!expense) return null
+  const comments = expense.comments ?? []
+  const history = expense.history ?? []
+  return (
+    <>
+      <Panel title={expense.description} actionLabel="Back" onAction={state.closeExpense}>
+        <YStack gap="$3">
+          <XStack ai="center" jc="space-between" gap="$3">
+            <YStack flex={1}>
+              <Muted>
+                {expense.category} · {expense.kind} · {expense.date}
+              </Muted>
+              <Text color="#09090b" fontSize={28} lineHeight={34} fontWeight="900">
+                {expense.currency} {expense.amount.toFixed(2)}
+              </Text>
+            </YStack>
+            <YStack ai="flex-end">
+              <SizableText color="#09090b" size="$2" fontWeight="900">
+                {expense.deletedAt ? 'Deleted' : 'Active'}
+              </SizableText>
+              <Muted>{expense.splitMode} split</Muted>
+            </YStack>
+          </XStack>
+          <FeatureList
+            rows={[
+              ['Paid by', state.memberName(expense.paidBy)],
+              ['Participants', expense.participants.map(state.memberName).join(', ')],
+              ['Notes', expense.notes ?? 'No notes'],
+              ['Attachment', expense.attachmentName ?? 'No attachment'],
+            ]}
+          />
+          {expense.receiptItems?.length ? (
+            <YStack gap="$2">
+              <Label>Receipt items</Label>
+              {expense.receiptItems.map((item) => (
+                <XStack key={item.id} jc="space-between" py="$2" borderBottomWidth={1} borderColor="#f4f4f5">
+                  <YStack flex={1}>
+                    <Text color="#09090b" fontSize={14} fontWeight="900">
+                      {item.label}
+                    </Text>
+                    <Muted>{item.assignedTo.map(state.memberName).join(', ')}</Muted>
+                  </YStack>
+                  <SizableText color="#09090b" size="$2" fontWeight="900">
+                    {expense.currency} {item.amount.toFixed(2)}
+                  </SizableText>
+                </XStack>
+              ))}
+            </YStack>
+          ) : null}
+        </YStack>
+      </Panel>
+
+      <Panel title="Edit expense">
+        <YStack gap="$3">
+          <Field label="Description">
+            <Input value={state.detailDescription} onChangeText={state.setDetailDescription} placeholder="Description" {...inputProps} />
+          </Field>
+          <Field label="Amount">
+            <Input value={state.detailAmount} onChangeText={state.setDetailAmount} keyboardType="decimal-pad" placeholder="0.00" {...inputProps} />
+          </Field>
+          <XStack gap="$2" fw="wrap">
+            <SecondaryButton icon={<Pencil size={16} color="#09090b" />} label="Save edit" onPress={state.updateSelectedExpense} />
+            {expense.deletedAt ? (
+              <SecondaryButton icon={<RefreshCcw size={16} color="#09090b" />} label="Restore" onPress={state.restoreSelectedExpense} />
+            ) : (
+              <SecondaryButton icon={<Trash2 size={16} color="#09090b" />} label="Delete" onPress={state.deleteSelectedExpense} />
+            )}
+          </XStack>
+        </YStack>
+      </Panel>
+
+      <Panel title="Comments">
+        <YStack gap="$3">
+          <Field label="New comment">
+            <Input value={state.commentDraft} onChangeText={state.setCommentDraft} placeholder="Add a note for everyone on this expense" {...inputProps} />
+          </Field>
+          <SecondaryButton icon={<MessageCircle size={16} color="#09090b" />} label="Add comment" onPress={state.addExpenseComment} />
+          {comments.length ? comments.map((comment) => (
+            <XStack key={comment.id} gap="$2.5" py="$2.5" borderBottomWidth={1} borderColor="#f4f4f5">
+              <YStack ai="center" jc="center" h={34} w={34} br={999} bg="#f4f4f5">
+                <SizableText color="#09090b" size="$1" fontWeight="900">
+                  {state.memberName(comment.memberId).slice(0, 2).toUpperCase()}
+                </SizableText>
+              </YStack>
+              <YStack flex={1}>
+                <Text color="#09090b" fontSize={14} fontWeight="900">
+                  {state.memberName(comment.memberId)}
+                </Text>
+                <Muted>{comment.body}</Muted>
+              </YStack>
+            </XStack>
+          )) : <Muted>No comments yet.</Muted>}
+        </YStack>
+      </Panel>
+
+      <Panel title="History">
+        <YStack gap="$2">
+          {history.length ? history.map((event) => (
+            <XStack key={event.id} jc="space-between" gap="$3" py="$2" borderBottomWidth={1} borderColor="#f4f4f5">
+              <YStack flex={1}>
+                <Text color="#09090b" fontSize={14} fontWeight="900">
+                  {event.summary}
+                </Text>
+                <Muted>{event.memberId ? state.memberName(event.memberId) : 'System'}</Muted>
+              </YStack>
+              <Muted>{new Date(event.createdAt).toLocaleDateString()}</Muted>
+            </XStack>
+          )) : <Muted>No history yet.</Muted>}
+        </YStack>
       </Panel>
     </>
   )
@@ -1442,24 +1706,26 @@ function Panel({ title, actionLabel, onAction, children }) {
   )
 }
 
-function ExpenseRow({ expense }) {
+function ExpenseRow({ expense, onPress }) {
   return (
-    <XStack ai="center" gap="$2.5" py="$2.5" borderBottomWidth={1} borderColor="#f4f4f5">
-      <YStack ai="center" jc="center" bg="#f4f4f5" br={999} h={36} w={36}>
-        <ReceiptText size={17} color="#09090b" />
-      </YStack>
-      <YStack flex={1}>
-        <Text color="#09090b" fontSize={15} fontWeight="900">
-          {expense.description}
+    <Button unstyled onPress={onPress}>
+      <XStack ai="center" gap="$2.5" py="$2.5" borderBottomWidth={1} borderColor="#f4f4f5">
+        <YStack ai="center" jc="center" bg="#f4f4f5" br={999} h={36} w={36}>
+          <ReceiptText size={17} color="#09090b" />
+        </YStack>
+        <YStack flex={1}>
+          <Text color="#09090b" fontSize={15} fontWeight="900">
+            {expense.description}
+          </Text>
+          <Muted>
+            {expense.category} · {expense.splitMode} · {expense.date}
+          </Muted>
+        </YStack>
+        <Text color="#09090b" fontSize={14} fontWeight="900">
+          {expense.currency} {expense.amount.toFixed(0)}
         </Text>
-        <Muted>
-          {expense.category} · {expense.splitMode} · {expense.date}
-        </Muted>
-      </YStack>
-      <Text color="#09090b" fontSize={14} fontWeight="900">
-        {expense.currency} {expense.amount.toFixed(0)}
-      </Text>
-    </XStack>
+      </XStack>
+    </Button>
   )
 }
 

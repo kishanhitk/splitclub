@@ -4,6 +4,8 @@ import { Hono } from 'hono'
 import { ZodError } from 'zod'
 import {
   expenseSchema,
+  expenseCommentSchema,
+  expenseUpdateSchema,
   friendSchema,
   groupSchema,
   groupInviteSchema,
@@ -39,6 +41,7 @@ function scopeLedger(ledger: Ledger, userId: string): Ledger {
   const visibleGroups = ledger.groups.filter((group) => group.memberIds.includes(userId))
   const visibleGroupIds = new Set(visibleGroups.map((group) => group.id))
   const visibleExpenses = ledger.expenses.filter((expense) => {
+    if (expense.deletedAt) return false
     if (expense.groupId) return visibleGroupIds.has(expense.groupId)
     return expense.paidBy === userId || expense.participants.includes(userId)
   })
@@ -220,6 +223,64 @@ export function createApp() {
     const expense = await store.createExpense(payload)
     await c.env.SYNC_QUEUE?.send({ type: 'expense.created', expenseId: expense.id, createdAt: new Date().toISOString() })
     return c.json({ expense }, 201)
+  })
+
+  app.get('/api/expenses/:id', async (c) => {
+    const store = getStore(c.env)
+    const member = currentMember(c.get('authMember'))
+    await requireExpenseAccess(store, member.id, c.req.param('id'))
+    const details = await store.getExpenseDetails(c.req.param('id'))
+    return c.json(details)
+  })
+
+  app.put('/api/expenses/:id', async (c) => {
+    const store = getStore(c.env)
+    const member = currentMember(c.get('authMember'))
+    const existing = await requireExpenseAccess(store, member.id, c.req.param('id'))
+    const payload = expenseUpdateSchema.parse(await c.req.json())
+    if (payload.groupId) await requireGroupAccess(store, member.id, payload.groupId)
+    const nextGroupId = payload.groupId === undefined ? existing.groupId : payload.groupId
+    const nextPaidBy = payload.paidBy ?? existing.paidBy
+    const nextParticipants = payload.participants ?? existing.participants
+    if (!nextGroupId && nextPaidBy !== member.id && !nextParticipants.includes(member.id)) {
+      throw new AuthError('Non-group expenses must include the authenticated user', 403)
+    }
+    const expense = await store.updateExpense(c.req.param('id'), payload, member.id)
+    await c.env.SYNC_QUEUE?.send({ type: 'expense.updated', expenseId: expense.id, createdAt: new Date().toISOString() })
+    return c.json({ expense })
+  })
+
+  app.post('/api/expenses/:id/comments', async (c) => {
+    const store = getStore(c.env)
+    const member = currentMember(c.get('authMember'))
+    await requireExpenseAccess(store, member.id, c.req.param('id'))
+    const comment = await store.addExpenseComment(c.req.param('id'), expenseCommentSchema.parse(await c.req.json()), member.id)
+    await c.env.SYNC_QUEUE?.send({ type: 'expense.commented', expenseId: c.req.param('id'), commentId: comment.id, createdAt: new Date().toISOString() })
+    return c.json({ comment }, 201)
+  })
+
+  app.delete('/api/expenses/:id', async (c) => {
+    const store = getStore(c.env)
+    const member = currentMember(c.get('authMember'))
+    await requireExpenseAccess(store, member.id, c.req.param('id'))
+    const expense = await store.deleteExpense(c.req.param('id'), member.id)
+    await c.env.SYNC_QUEUE?.send({ type: 'expense.deleted', expenseId: expense.id, createdAt: new Date().toISOString() })
+    return c.json({ expense })
+  })
+
+  app.post('/api/expenses/:id/restore', async (c) => {
+    const store = getStore(c.env)
+    const member = currentMember(c.get('authMember'))
+    const details = await store.getExpenseDetails(c.req.param('id'))
+    if (!details.expense) throw new AuthError('Expense is not visible to this user', 403)
+    if (details.expense.groupId) {
+      await requireGroupAccess(store, member.id, details.expense.groupId)
+    } else if (details.expense.paidBy !== member.id && !details.expense.participants.includes(member.id)) {
+      throw new AuthError('Expense is not visible to this user', 403)
+    }
+    const expense = await store.restoreExpense(c.req.param('id'), member.id)
+    await c.env.SYNC_QUEUE?.send({ type: 'expense.restored', expenseId: expense.id, createdAt: new Date().toISOString() })
+    return c.json({ expense })
   })
 
   app.post('/api/settlements', async (c) => {
