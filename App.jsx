@@ -104,6 +104,7 @@ const addExpenseSteps = [
 ]
 
 const navItems = [
+  { id: 'home', label: 'Home', description: 'Today, balances, next actions', icon: Home },
   { id: 'activity', label: 'Activity', description: 'Ledger, search, comments', icon: ReceiptText },
   { id: 'groups', label: 'Groups', description: 'Members, invites, defaults', icon: Users },
   { id: 'add', label: 'Add', description: 'Create or itemize a bill', icon: Plus },
@@ -111,8 +112,11 @@ const navItems = [
   { id: 'settings', label: 'More', description: 'Account, sync, exports', icon: Settings },
 ]
 
+const mobileNavItems = navItems.filter((item) => item.id !== 'balances')
+
 const moreDestinations = [
   { id: 'account', label: 'Account', description: 'Profile, privacy, and sign-in', icon: UserCircle },
+  { id: 'balances', label: 'Balances', description: 'Friend totals, net balances, and settle-up', icon: WalletCards },
   { id: 'notifications', label: 'Notifications', description: 'Recent changes and unread activity', icon: Bell },
   { id: 'privacy', label: 'Privacy', description: 'Visibility rules and private expenses', icon: ShieldCheck },
   { id: 'currencies', label: 'Currencies', description: 'Rates, defaults, and group conversion', icon: CircleDollarSign },
@@ -132,7 +136,7 @@ export default function App() {
 function SplitClubApp() {
   const [ledger, setLedger] = useState(seedLedger)
   const [selectedGroupId, setSelectedGroupId] = useState('goa')
-  const [activeTab, setActiveTab] = useState('activity')
+  const [activeTab, setActiveTab] = useState('home')
   const [moreSection, setMoreSection] = useState('index')
   const [query, setQuery] = useState('')
   const [selectedExpenseId, setSelectedExpenseId] = useState(null)
@@ -2035,6 +2039,7 @@ function SplitClubApp() {
             >
               <YStack gap="$3" maxWidth={920} width="100%" alignSelf="center">
                 {selectedExpense ? <ExpenseDetailScreen state={appState} /> : null}
+                {!selectedExpense && activeTab === 'home' && <HomeScreen state={appState} />}
                 {!selectedExpense && activeTab === 'activity' && <ActivityScreen state={appState} />}
                 {!selectedExpense && activeTab === 'groups' && (groupSettingsOpen ? <GroupSettingsScreen state={appState} /> : <GroupsScreen state={appState} />)}
                 {!selectedExpense && activeTab === 'add' && <AddExpenseScreen state={appState} />}
@@ -2044,7 +2049,7 @@ function SplitClubApp() {
             </ScrollView>
           </YStack>
         </YStack>
-        {!isWideLayout ? <BottomNav activeTab={activeTab} onChange={handlePrimaryRouteChange} /> : null}
+        {!isWideLayout ? <BottomNav activeTab={activeTab} onChange={handlePrimaryRouteChange} unreadNotificationCount={unreadNotificationCount} /> : null}
       </XStack>
     </SafeAreaView>
   )
@@ -2126,6 +2131,14 @@ function buildRouteMeta({ activeTab, moreSection, selectedExpense, selectedGroup
       section: 'More',
       title: destination?.label ?? 'More',
       description: destination?.description ?? 'Account, sync, exports, receipts, recurring bills, and app controls.',
+    }
+  }
+  if (activeTab === 'home') {
+    return {
+      id: 'home',
+      section: 'Workspace',
+      title: 'Home',
+      description: 'A focused start point for balances, recent bills, groups, and the next action.',
     }
   }
   if (activeTab === 'groups') {
@@ -2304,6 +2317,95 @@ function syncSummaryWithConflicts(summary, conflicts) {
     groupConflicts: conflicts.filter((conflict) => conflict.entity === 'group').length,
     expenseConflicts: conflicts.filter((conflict) => conflict.entity === 'expense').length,
   }
+}
+
+function HomeScreen({ state }) {
+  const youAreOwed = state.friendBalanceSummaries
+    .filter((summary) => summary.amount > 0)
+    .reduce((sum, summary) => sum + summary.amount, 0)
+  const youOwe = Math.abs(state.friendBalanceSummaries
+    .filter((summary) => summary.amount < 0)
+    .reduce((sum, summary) => sum + summary.amount, 0))
+  const latestExpenses = state.visibleExpenses.slice(0, 3)
+  const activeGroupCount = state.activeGroups.length
+  const selectedGroupLabel = state.selectedGroup
+    ? `${state.selectedGroup.name} · ${state.membersForGroup.length} members`
+    : 'Non-group expenses'
+
+  return (
+    <>
+      <Panel>
+        <YStack gap="$4">
+          <XStack ai="flex-start" jc="space-between" gap="$3">
+            <YStack flex={1} minWidth={0}>
+              <SizableText color="#71717a" size="$2" fontWeight="800" textTransform="uppercase">
+                SplitClub
+              </SizableText>
+              <Text color="#09090b" fontSize={30} lineHeight={35} fontWeight="900">
+                {state.activeUser.name}
+              </Text>
+              <Muted>{selectedGroupLabel}</Muted>
+            </YStack>
+            <YStack ai="center" jc="center" height={46} width={46} minWidth={46} br={999} bg="#09090b">
+              <SizableText color="#ffffff" size="$3" fontWeight="900">
+                {state.activeUser.avatar ?? state.activeUser.name.slice(0, 2).toUpperCase()}
+              </SizableText>
+            </YStack>
+          </XStack>
+
+          <XStack gap="$2" fw="wrap">
+            <BalanceMetric label="You are owed" value={`${state.currency} ${youAreOwed.toFixed(2)}`} />
+            <BalanceMetric label="You owe" value={`${state.currency} ${youOwe.toFixed(2)}`} />
+          </XStack>
+
+          <XStack gap="$2" fw="wrap">
+            <SecondaryButton icon={<Plus size={16} color="#09090b" />} label="Add expense" onPress={() => state.setActiveTab('add')} />
+            <SecondaryButton
+              icon={<WalletCards size={16} color="#09090b" />}
+              label="Settle up"
+              onPress={() => {
+                state.setMoreSection('balances')
+                state.setActiveTab('settings')
+              }}
+            />
+          </XStack>
+        </YStack>
+      </Panel>
+
+      <Panel title="Next actions">
+        <YStack gap="$2">
+          <ActionRow
+            icon={<Users size={17} color="#09090b" />}
+            title={`${activeGroupCount} active groups`}
+            body="Manage members, friends, invites, and group defaults."
+            onPress={() => state.setActiveTab('groups')}
+          />
+          <ActionRow
+            icon={<ReceiptText size={17} color="#09090b" />}
+            title={`${state.visibleExpenses.length} visible expenses`}
+            body="Search the ledger and open expense details."
+            onPress={() => state.setActiveTab('activity')}
+          />
+          <ActionRow
+            icon={<Bell size={17} color="#09090b" />}
+            title={`${state.unreadNotificationCount} unread updates`}
+            body="Review account activity and recurring bill notices."
+            onPress={() => {
+              state.setMoreSection('notifications')
+              state.setActiveTab('settings')
+            }}
+          />
+        </YStack>
+      </Panel>
+
+      <Panel title="Recent bills" actionLabel="All activity" onAction={() => state.setActiveTab('activity')}>
+        {latestExpenses.map((expense) => (
+          <ExpenseRow key={expense.id} expense={expense} onPress={() => state.openExpense(expense)} />
+        ))}
+        {latestExpenses.length === 0 ? <Muted>No expenses yet.</Muted> : null}
+      </Panel>
+    </>
+  )
 }
 
 function ActivityScreen({ state }) {
@@ -3241,6 +3343,7 @@ function MoreScreen({ state }) {
           <Muted>{selectedDestination.description}</Muted>
         </Panel>
         {state.moreSection === 'account' ? <AccountScreen state={state} /> : null}
+        {state.moreSection === 'balances' ? <BalancesScreen state={state} /> : null}
         {state.moreSection === 'notifications' ? <NotificationsScreen state={state} /> : null}
         {state.moreSection === 'privacy' ? <PrivacyScreen state={state} /> : null}
         {state.moreSection === 'currencies' ? <CurrenciesScreen state={state} /> : null}
@@ -3862,13 +3965,14 @@ function DesktopNav({ activeTab, onChange, syncState, unreadNotificationCount })
   )
 }
 
-function BottomNav({ activeTab, onChange }) {
+function BottomNav({ activeTab, onChange, unreadNotificationCount }) {
   return (
     <YStack position="absolute" left={0} right={0} bottom={0} bg="#ffffff" borderTopWidth={1} borderColor="#e5e5e5" px="$3" pt="$2" pb="$3">
       <XStack maxWidth={820} width="100%" alignSelf="center" jc="space-between" gap="$1">
-        {navItems.map((item) => {
+        {mobileNavItems.map((item) => {
           const Icon = item.icon
           const active = activeTab === item.id
+          const badge = item.id === 'settings' && unreadNotificationCount > 0 ? unreadNotificationCount : null
           return (
             <Button
               key={item.id}
@@ -3882,7 +3986,16 @@ function BottomNav({ activeTab, onChange }) {
               onPress={() => onChange(item.id)}
               pressStyle={{ scale: 0.98, bg: active ? '#18181b' : '#f4f4f5' }}
             >
-              <Icon size={18} color={active ? '#ffffff' : '#52525b'} />
+              <YStack>
+                <Icon size={18} color={active ? '#ffffff' : '#52525b'} />
+                {badge ? (
+                  <YStack position="absolute" top={-7} right={-10} ai="center" jc="center" minWidth={16} h={16} br={999} bg={active ? '#ffffff' : '#09090b'} px="$1">
+                    <SizableText color={active ? '#09090b' : '#ffffff'} size="$1" fontWeight="900">
+                      {badge > 9 ? '9+' : badge}
+                    </SizableText>
+                  </YStack>
+                ) : null}
+              </YStack>
               <SizableText color={active ? '#ffffff' : '#52525b'} size="$1" fontWeight="900">
                 {item.label}
               </SizableText>
@@ -3952,6 +4065,47 @@ function GroupButton({ label, meta, active, onPress }) {
         <Home size={17} color={active ? '#ffffff' : '#52525b'} />
       </XStack>
     </Button>
+  )
+}
+
+function BalanceMetric({ label, value }) {
+  return (
+    <YStack flex={1} minWidth={148} bg="#fafafa" borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3" gap="$1">
+      <SizableText color="#71717a" size="$2" fontWeight="800" ta="left">
+        {label}
+      </SizableText>
+      <Text color="#09090b" fontSize={20} lineHeight={25} fontWeight="900" ta="left">
+        {value}
+      </Text>
+    </YStack>
+  )
+}
+
+function ActionRow({ icon, title, body, onPress }) {
+  return (
+    <XStack
+      width="100%"
+      ai="center"
+      gap="$3"
+      py="$2.5"
+      borderBottomWidth={1}
+      borderColor="#f4f4f5"
+      onPress={onPress}
+      pressStyle={{ opacity: 0.72 }}
+    >
+      <YStack ai="center" jc="center" height={38} width={38} minWidth={38} br="$2" bg="#f4f4f5">
+        {icon}
+      </YStack>
+      <YStack flex={1} minWidth={0} ai="flex-start">
+        <Text width="100%" color="#09090b" fontSize={15} fontWeight="900" ta="left">
+          {title}
+        </Text>
+        <SizableText width="100%" color="#71717a" size="$2" lineHeight={17} ta="left">
+          {body}
+        </SizableText>
+      </YStack>
+      <ChevronRight size={17} color="#71717a" />
+    </XStack>
   )
 }
 

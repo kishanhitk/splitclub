@@ -37,7 +37,8 @@ SplitClub should cover the following Splitwise-style capabilities:
 ## Current Foundation Coverage
 
 - React Native app targets Android and web through Expo.
-- Mobile-first UI includes a production app shell with focused workspaces for activity, groups, add-expense flow, balances, and tools; web/tablet layouts gain a persistent monochrome navigation rail while Android keeps bottom tabs.
+- Mobile-first UI includes a production app shell with a focused Home workspace, activity, groups, add-expense flow, balances, and tools; web/tablet layouts gain a persistent monochrome navigation rail while Android keeps a tight five-item bottom tab bar.
+- The visual system follows a clean monochrome Tamagui v2 surface language aligned with shadcn-style hierarchy, using Expo-compatible latest dependency ranges instead of unsupported React Native peer versions.
 - Focused workspaces cover groups, friends, invites/roles, stepped expense creation, split mode controls, balances, simplified settlements, search, category totals, recurring/receipt/export affordances, currency conversion controls, and offline persistence.
 - Domain logic is isolated in `src/domain/split.ts` and covered by Bun tests.
 - Cloudflare Worker API contract is started in `worker/index.ts` with Hono, D1/R2/Queue bindings in `wrangler.toml`.
