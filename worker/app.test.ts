@@ -97,6 +97,47 @@ describe('SplitClub Worker API', () => {
     expect(settlementBody.settlement.kind).toBe('settlement')
   })
 
+  test('creates friends, invites members, and updates permissions', async () => {
+    const env = createEnv()
+
+    const friendResponse = await request(
+      '/api/friends',
+      {
+        method: 'POST',
+        body: JSON.stringify({ name: 'Rhea', email: 'rhea@example.com', preferredPayment: 'upi' }),
+      },
+      env,
+    )
+    const friendBody = (await friendResponse.json()) as { friend: { id: string; name: string } }
+    expect(friendResponse.status).toBe(201)
+    expect(friendBody.friend.name).toBe('Rhea')
+
+    const inviteResponse = await request(
+      '/api/groups/goa/invites',
+      {
+        method: 'POST',
+        body: JSON.stringify({ invitedEmail: 'rhea@example.com', role: 'member', createdBy: 'kishan' }),
+      },
+      env,
+    )
+    const inviteBody = (await inviteResponse.json()) as { invite: { status: string; token: string } }
+    expect(inviteResponse.status).toBe(201)
+    expect(inviteBody.invite.status).toBe('pending')
+    expect(inviteBody.invite.token).toStartWith('join_')
+
+    const membershipResponse = await request(
+      `/api/groups/goa/members/${friendBody.friend.id}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ role: 'viewer' }),
+      },
+      env,
+    )
+    const membershipBody = (await membershipResponse.json()) as { membership: { role: string } }
+    expect(membershipResponse.status).toBe(200)
+    expect(membershipBody.membership.role).toBe('viewer')
+  })
+
   test('exposes sync payload and validation errors', async () => {
     const env = createEnv()
 

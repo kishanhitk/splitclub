@@ -1,5 +1,34 @@
 import type { Expense, Group, Ledger, Member } from '../src/domain/split'
-import type { ExpenseInput, GroupInput, MemberInput, SettlementInput } from '../src/contracts/api'
+import type {
+  ExpenseInput,
+  FriendInput,
+  GroupInput,
+  GroupInviteInput,
+  MemberInput,
+  MembershipInput,
+  SettlementInput,
+} from '../src/contracts/api'
+
+export type GroupRole = 'owner' | 'admin' | 'member' | 'viewer'
+
+export type GroupInvite = {
+  id: string
+  groupId: string
+  invitedEmail?: string
+  invitedPhone?: string
+  role: GroupRole
+  token: string
+  status: 'pending' | 'accepted' | 'canceled'
+  createdBy: string
+  acceptedBy?: string
+  createdAt: string
+}
+
+export type Membership = {
+  groupId: string
+  userId: string
+  role: GroupRole
+}
 
 export type AuditEvent = {
   id: string
@@ -15,8 +44,14 @@ export type LedgerStore = {
   getLedger(): Promise<Ledger>
   listMembers(): Promise<Member[]>
   createMember(input: MemberInput): Promise<Member>
+  listFriends(): Promise<Member[]>
+  createFriend(input: FriendInput): Promise<Member>
   listGroups(): Promise<Group[]>
   createGroup(input: GroupInput): Promise<Group>
+  listGroupInvites(groupId: string): Promise<GroupInvite[]>
+  createGroupInvite(input: GroupInviteInput): Promise<GroupInvite>
+  updateMembership(input: MembershipInput): Promise<Membership>
+  removeMembership(groupId: string, userId: string): Promise<void>
   listExpenses(filters?: { groupId?: string | null; q?: string }): Promise<Expense[]>
   createExpense(input: ExpenseInput): Promise<Expense>
   recordSettlement(input: SettlementInput): Promise<Expense>
@@ -29,6 +64,12 @@ const makeId = (prefix: string) => `${prefix}_${crypto.randomUUID()}`
 export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
   let ledger: Ledger = structuredClone(initialLedger)
   const auditEvents: AuditEvent[] = []
+  const roles = new Map<string, GroupRole>()
+  const invites: GroupInvite[] = []
+
+  for (const group of ledger.groups) {
+    group.memberIds.forEach((memberId, index) => roles.set(`${group.id}:${memberId}`, index === 0 ? 'owner' : 'member'))
+  }
 
   const audit = (entityType: string, entityId: string, action: string, payload: unknown) => {
     auditEvents.unshift({ id: makeId('audit'), entityType, entityId, action, payload, createdAt: now() })
@@ -54,6 +95,12 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
       audit('user', member.id, 'created', member)
       return structuredClone(member)
     },
+    async listFriends() {
+      return structuredClone(ledger.members)
+    },
+    async createFriend(input) {
+      return this.createMember(input)
+    },
     async listGroups() {
       return structuredClone(ledger.groups)
     },
@@ -72,6 +119,45 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
       ledger = { ...ledger, groups: [group, ...ledger.groups] }
       audit('group', group.id, 'created', group)
       return structuredClone(group)
+    },
+    async listGroupInvites(groupId) {
+      return structuredClone(invites.filter((invite) => invite.groupId === groupId))
+    },
+    async createGroupInvite(input) {
+      const invite: GroupInvite = {
+        id: makeId('invite'),
+        groupId: input.groupId,
+        invitedEmail: input.invitedEmail,
+        invitedPhone: input.invitedPhone,
+        role: input.role,
+        token: makeId('join'),
+        status: 'pending',
+        createdBy: input.createdBy,
+        createdAt: now(),
+      }
+      invites.unshift(invite)
+      audit('group_invite', invite.id, 'created', invite)
+      return structuredClone(invite)
+    },
+    async updateMembership(input) {
+      const group = ledger.groups.find((candidate) => candidate.id === input.groupId)
+      if (!group) throw new Error('Group not found')
+      if (!group.memberIds.includes(input.userId)) {
+        group.memberIds.push(input.userId)
+      }
+      roles.set(`${input.groupId}:${input.userId}`, input.role)
+      audit('membership', `${input.groupId}:${input.userId}`, 'updated', input)
+      return { groupId: input.groupId, userId: input.userId, role: input.role }
+    },
+    async removeMembership(groupId, userId) {
+      ledger = {
+        ...ledger,
+        groups: ledger.groups.map((group) =>
+          group.id === groupId ? { ...group, memberIds: group.memberIds.filter((memberId) => memberId !== userId) } : group,
+        ),
+      }
+      roles.delete(`${groupId}:${userId}`)
+      audit('membership', `${groupId}:${userId}`, 'removed', { groupId, userId })
     },
     async listExpenses(filters = {}) {
       const q = filters.q?.trim().toLowerCase()
@@ -264,6 +350,18 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
       await audit('user', member.id, 'created', member)
       return member
     },
+    async listFriends() {
+      return this.listMembers()
+    },
+    async createFriend(input) {
+      const friend = await this.createMember(input)
+      await db
+        .prepare('INSERT OR IGNORE INTO friendships (id, user_id, friend_id, status) VALUES (?, ?, ?, ?)')
+        .bind(makeId('friendship'), 'kishan', friend.id, 'accepted')
+        .run()
+      await audit('friendship', friend.id, 'created', friend)
+      return friend
+    },
     async listGroups() {
       const groups = await db
         .prepare('SELECT id, name, emoji, category, default_currency, simplify_debts, default_split_mode FROM groups WHERE deleted_at IS NULL ORDER BY updated_at DESC')
@@ -306,6 +404,69 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
       await Promise.all(group.defaultSplits.map((split) => db.prepare('INSERT INTO group_default_splits (group_id, user_id, value) VALUES (?, ?, ?)').bind(group.id, split.memberId, split.value).run()))
       await audit('group', group.id, 'created', group)
       return group
+    },
+    async listGroupInvites(groupId) {
+      const result = await db
+        .prepare('SELECT id, group_id, invited_email, invited_phone, role, token, status, created_by, accepted_by, created_at FROM group_invites WHERE group_id = ? ORDER BY created_at DESC')
+        .bind(groupId)
+        .all<{
+          id: string
+          group_id: string
+          invited_email?: string
+          invited_phone?: string
+          role: GroupRole
+          token: string
+          status: GroupInvite['status']
+          created_by: string
+          accepted_by?: string
+          created_at: string
+        }>()
+      return result.results.map((row) => ({
+        id: row.id,
+        groupId: row.group_id,
+        invitedEmail: row.invited_email,
+        invitedPhone: row.invited_phone,
+        role: row.role,
+        token: row.token,
+        status: row.status,
+        createdBy: row.created_by,
+        acceptedBy: row.accepted_by,
+        createdAt: row.created_at,
+      }))
+    },
+    async createGroupInvite(input) {
+      const invite: GroupInvite = {
+        id: makeId('invite'),
+        groupId: input.groupId,
+        invitedEmail: input.invitedEmail,
+        invitedPhone: input.invitedPhone,
+        role: input.role,
+        token: makeId('join'),
+        status: 'pending',
+        createdBy: input.createdBy,
+        createdAt: now(),
+      }
+      await db
+        .prepare('INSERT INTO group_invites (id, group_id, invited_email, invited_phone, role, token, status, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .bind(invite.id, invite.groupId, invite.invitedEmail, invite.invitedPhone, invite.role, invite.token, invite.status, invite.createdBy, invite.createdAt)
+        .run()
+      await audit('group_invite', invite.id, 'created', invite)
+      return invite
+    },
+    async updateMembership(input) {
+      await db
+        .prepare('INSERT OR REPLACE INTO group_memberships (group_id, user_id, role, deleted_at) VALUES (?, ?, ?, NULL)')
+        .bind(input.groupId, input.userId, input.role)
+        .run()
+      await audit('membership', `${input.groupId}:${input.userId}`, 'updated', input)
+      return { groupId: input.groupId, userId: input.userId, role: input.role }
+    },
+    async removeMembership(groupId, userId) {
+      await db
+        .prepare('UPDATE group_memberships SET deleted_at = CURRENT_TIMESTAMP WHERE group_id = ? AND user_id = ?')
+        .bind(groupId, userId)
+        .run()
+      await audit('membership', `${groupId}:${userId}`, 'removed', { groupId, userId })
     },
     async listExpenses(filters = {}) {
       const clauses = ['deleted_at IS NULL']

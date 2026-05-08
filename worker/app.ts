@@ -4,7 +4,10 @@ import { Hono } from 'hono'
 import { ZodError } from 'zod'
 import {
   expenseSchema,
+  friendSchema,
   groupSchema,
+  groupInviteSchema,
+  membershipSchema,
   memberSchema,
   searchSchema,
   settlementSchema,
@@ -65,12 +68,42 @@ export function createApp() {
     return c.json({ member }, 201)
   })
 
+  app.get('/api/friends', async (c) => c.json({ friends: await getStore(c.env).listFriends() }))
+
+  app.post('/api/friends', async (c) => {
+    const friend = await getStore(c.env).createFriend(friendSchema.parse(await c.req.json()))
+    await c.env.SYNC_QUEUE?.send({ type: 'friend.created', friendId: friend.id, createdAt: new Date().toISOString() })
+    return c.json({ friend }, 201)
+  })
+
   app.get('/api/groups', async (c) => c.json({ groups: await getStore(c.env).listGroups() }))
 
   app.post('/api/groups', async (c) => {
     const group = await getStore(c.env).createGroup(groupSchema.parse(await c.req.json()))
     await c.env.SYNC_QUEUE?.send({ type: 'group.created', groupId: group.id, createdAt: new Date().toISOString() })
     return c.json({ group }, 201)
+  })
+
+  app.get('/api/groups/:id/invites', async (c) => c.json({ invites: await getStore(c.env).listGroupInvites(c.req.param('id')) }))
+
+  app.post('/api/groups/:id/invites', async (c) => {
+    const payload = groupInviteSchema.parse({ ...(await c.req.json()), groupId: c.req.param('id') })
+    const invite = await getStore(c.env).createGroupInvite(payload)
+    await c.env.SYNC_QUEUE?.send({ type: 'group_invite.created', inviteId: invite.id, groupId: invite.groupId, createdAt: new Date().toISOString() })
+    return c.json({ invite }, 201)
+  })
+
+  app.put('/api/groups/:id/members/:userId', async (c) => {
+    const payload = membershipSchema.parse({ ...(await c.req.json()), groupId: c.req.param('id'), userId: c.req.param('userId') })
+    const membership = await getStore(c.env).updateMembership(payload)
+    await c.env.SYNC_QUEUE?.send({ type: 'membership.updated', groupId: payload.groupId, userId: payload.userId, createdAt: new Date().toISOString() })
+    return c.json({ membership })
+  })
+
+  app.delete('/api/groups/:id/members/:userId', async (c) => {
+    await getStore(c.env).removeMembership(c.req.param('id'), c.req.param('userId'))
+    await c.env.SYNC_QUEUE?.send({ type: 'membership.removed', groupId: c.req.param('id'), userId: c.req.param('userId'), createdAt: new Date().toISOString() })
+    return c.json({ ok: true })
   })
 
   app.get('/api/expenses', async (c) => {
