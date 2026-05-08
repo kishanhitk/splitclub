@@ -86,3 +86,12 @@ jobs:
       - name: Build Android debug APK
         working-directory: android
         run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Upload Android debug APK
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: splitclub-android-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
