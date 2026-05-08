@@ -339,12 +339,12 @@ function HomeScreen({ state }) {
             </YStack>
           </XStack>
 
-          <XStack gap="$2" fw="wrap">
+          <XStack gap="$2" flexWrap="wrap">
             <BalanceMetric label="You are owed" value={`${state.currency} ${youAreOwed.toFixed(2)}`} />
             <BalanceMetric label="You owe" value={`${state.currency} ${youOwe.toFixed(2)}`} />
           </XStack>
 
-          <XStack gap="$2" fw="wrap">
+          <XStack gap="$2" flexWrap="wrap">
             <SecondaryButton icon={<Plus size={16} color="#09090b" />} label="Add expense" onPress={() => state.setActiveTab('add')} />
             <SecondaryButton
               icon={<WalletCards size={16} color="#09090b" />}
@@ -514,7 +514,7 @@ function ExpenseDetailScreen({ state }) {
           <Field label="Amount">
             <Input value={state.detailAmount} onChangeText={state.setDetailAmount} keyboardType="decimal-pad" placeholder="0.00" {...inputProps} />
           </Field>
-          <XStack gap="$2" fw="wrap">
+          <XStack gap="$2" flexWrap="wrap">
             <SecondaryButton icon={<Pencil size={16} color="#09090b" />} label="Save edit" onPress={state.updateSelectedExpense} />
             {expense.deletedAt ? (
               <SecondaryButton icon={<RefreshCcw size={16} color="#09090b" />} label="Restore" onPress={state.restoreSelectedExpense} />
@@ -587,7 +587,7 @@ function GroupsScreen({ state }) {
       </Panel>
 
       <Panel title="Workspace">
-        <XStack gap="$1.5" fw="wrap">
+        <XStack gap="$1.5" flexWrap="wrap">
           {groupViews.map((view) => (
             <Chip key={view.id} label={view.label} active={state.groupView === view.id} onPress={() => state.setGroupView(view.id)} />
           ))}
@@ -603,7 +603,7 @@ function GroupsScreen({ state }) {
               ['Settle-up mode', state.selectedGroup.simplifyDebts ? 'Simplified debts are on.' : 'Direct pairwise debts are on.'],
               ['Restore path', 'Deleted groups are restored from More > Tools.'],
             ]} />
-            <XStack gap="$2" fw="wrap">
+            <XStack gap="$2" flexWrap="wrap">
               <SecondaryButton icon={<Settings size={16} color="#09090b" />} label="Settings" onPress={state.openGroupSettings} />
               <SecondaryButton icon={<Trash2 size={16} color="#09090b" />} label="Delete group" onPress={state.deleteSelectedGroup} />
             </XStack>
@@ -624,7 +624,7 @@ function GroupsScreen({ state }) {
       {state.groupView === 'friends' ? (
         <>
           <Panel title="Friends">
-            <XStack fw="wrap" gap="$2">
+            <XStack flexWrap="wrap" gap="$2">
               {state.membersForGroup.filter((member) => member.id !== state.activeUser.id).map((member) => (
                 <Button key={member.id} unstyled width="48.5%" minWidth={150} onPress={() => state.openFriendProfile(member)}>
                   <YStack bg={state.selectedFriendId === member.id ? '#f4f4f5' : '#ffffff'} borderWidth={1} borderColor={state.selectedFriendId === member.id ? '#09090b' : '#e4e4e7'} br="$2" p="$3">
@@ -658,13 +658,13 @@ function GroupsScreen({ state }) {
                   <Input value={state.editFriendContact} onChangeText={state.setEditFriendContact} placeholder="friend@example.com" {...inputProps} />
                 </Field>
                 <Field label="Preferred payment">
-                  <XStack gap="$1.5" fw="wrap">
+                  <XStack gap="$1.5" flexWrap="wrap">
                     {state.paymentMethods.map((method) => (
                       <Chip key={method} label={method.toUpperCase()} active={state.editFriendPayment === method} onPress={() => state.setEditFriendPayment(method)} />
                     ))}
                   </XStack>
                 </Field>
-                <XStack gap="$2" fw="wrap">
+                <XStack gap="$2" flexWrap="wrap">
                   <SecondaryButton icon={<Pencil size={16} color="#09090b" />} label="Save friend" onPress={state.saveFriendProfile} />
                   <SecondaryButton icon={<Trash2 size={16} color="#09090b" />} label="Remove" onPress={state.removeFriendProfile} />
                 </XStack>
@@ -707,7 +707,7 @@ function GroupsScreen({ state }) {
                 <Input value={state.inviteEmail} onChangeText={state.setInviteEmail} placeholder="name@example.com" {...inputProps} />
               </Field>
               <Field label="Invite role">
-                <XStack gap="$1.5" fw="wrap">
+                <XStack gap="$1.5" flexWrap="wrap">
                   {groupRoles.map((role) => (
                     <Chip key={role} label={role} active={state.inviteRole === role} onPress={() => state.setInviteRole(role)} />
                   ))}
@@ -725,7 +725,7 @@ function GroupsScreen({ state }) {
                       {invite.acceptedBy ? ` by ${state.memberName(invite.acceptedBy)}` : ''} · {invite.token}
                     </Muted>
                   </YStack>
-                  <XStack gap="$2" fw="wrap" jc="flex-end">
+                  <XStack gap="$2" flexWrap="wrap" jc="flex-end">
                     <SecondaryButton icon={<Share2 size={16} color="#09090b" />} label="Share" onPress={() => state.shareInvite(invite.id)} />
                     {invite.status === 'pending' ? (
                       <SecondaryButton icon={<Check size={16} color="#09090b" />} label="Accept" onPress={() => state.acceptInvite(invite.id)} />
@@ -758,7 +758,7 @@ function GroupsScreen({ state }) {
                       </SizableText>
                     </Button>
                   </XStack>
-                  <XStack gap="$1.5" fw="wrap">
+                  <XStack gap="$1.5" flexWrap="wrap">
                     {groupRoles.map((role) => (
                       <Chip
                         key={role}
@@ -791,7 +791,7 @@ function InviteLinkPanel({ state }) {
             {...inputProps}
           />
         </Field>
-        <XStack gap="$2" fw="wrap">
+        <XStack gap="$2" flexWrap="wrap">
           <SecondaryButton icon={<Check size={16} color="#09090b" />} label="Accept invite" onPress={state.acceptInviteToken} />
         </XStack>
         <Muted>{state.inviteLinkStatus}</Muted>
@@ -817,7 +817,7 @@ function GroupSettingsScreen({ state }) {
 
       <Panel title="Settle-up mode">
         <YStack gap="$3">
-          <XStack gap="$1.5" fw="wrap">
+          <XStack gap="$1.5" flexWrap="wrap">
             <Chip label="Simplified" active={state.groupSimplifyDebts} onPress={() => state.setGroupSimplifyDebts(true)} />
             <Chip label="Direct" active={!state.groupSimplifyDebts} onPress={() => state.setGroupSimplifyDebts(false)} />
           </XStack>
@@ -831,7 +831,7 @@ function GroupSettingsScreen({ state }) {
 
       <Panel title="Default split method" actionLabel="Save" onAction={state.saveGroupDefaults}>
         <YStack gap="$3">
-          <XStack gap="$1.5" fw="wrap">
+          <XStack gap="$1.5" flexWrap="wrap">
             {splitModes.map((mode) => (
               <Chip key={mode} label={mode} active={state.groupDefaultMode === mode} onPress={() => state.setGroupDefaultModeValue(mode)} />
             ))}
@@ -881,7 +881,7 @@ function AddExpenseScreen({ state }) {
   return (
     <>
       <Panel title="Expense flow">
-        <XStack gap="$1" fw="wrap">
+        <XStack gap="$1" flexWrap="wrap">
           {addExpenseSteps.map((step) => (
             <Button
               key={step.id}
@@ -915,7 +915,7 @@ function AddExpenseScreen({ state }) {
         <Panel title="Basics">
           <YStack gap="$3">
             <Field label="Type">
-              <XStack gap="$1.5" fw="wrap">
+              <XStack gap="$1.5" flexWrap="wrap">
                 {expenseKinds.map((kind) => (
                   <Chip key={kind} label={kind} active={state.expenseKind === kind} onPress={() => state.setExpenseKind(kind)} />
                 ))}
@@ -924,14 +924,14 @@ function AddExpenseScreen({ state }) {
             <Field label="Description">
               <Input value={state.description} onChangeText={state.setDescription} placeholder="What was this for?" {...inputProps} />
             </Field>
-            <XStack gap="$2" fw="wrap">
+            <XStack gap="$2" flexWrap="wrap">
               <YStack flex={1} minWidth={180} gap="$2">
                 <Label>Amount</Label>
                 <Input value={state.amount} onChangeText={state.setAmount} keyboardType="decimal-pad" placeholder="0.00" {...inputProps} />
               </YStack>
               <YStack flex={1} minWidth={180} gap="$2">
                 <Label>Currency</Label>
-                <XStack gap="$1.5" fw="wrap">
+                <XStack gap="$1.5" flexWrap="wrap">
                   {currencies.map((code) => (
                     <Chip key={code} label={code} active={state.currency === code} onPress={() => state.setCurrency(code)} />
                   ))}
@@ -939,7 +939,7 @@ function AddExpenseScreen({ state }) {
               </YStack>
             </XStack>
             <Field label="Category">
-              <XStack gap="$1.5" fw="wrap">
+              <XStack gap="$1.5" flexWrap="wrap">
                 {categories.map((category) => (
                   <Chip key={category} label={category} active={state.category === category} onPress={() => state.setCategory(category)} />
                 ))}
@@ -949,7 +949,7 @@ function AddExpenseScreen({ state }) {
               <Input value={state.date} onChangeText={state.setDate} placeholder="YYYY-MM-DD" {...inputProps} />
             </Field>
             <Field label="Recurring bill">
-              <XStack gap="$1.5" fw="wrap">
+              <XStack gap="$1.5" flexWrap="wrap">
                 {recurrenceOptions.map((option) => (
                   <Chip key={option} label={option} active={state.recurrence === option} onPress={() => state.setRecurrence(option)} />
                 ))}
@@ -971,14 +971,14 @@ function AddExpenseScreen({ state }) {
         <Panel title="Payers">
           <YStack gap="$3">
             <Field label="Paid by">
-              <XStack gap="$1.5" fw="wrap">
+              <XStack gap="$1.5" flexWrap="wrap">
                 {state.membersForGroup.map((member) => (
                   <Chip key={member.id} label={member.name} active={state.paidBy === member.id} onPress={() => state.setPaidBy(member.id)} />
                 ))}
               </XStack>
             </Field>
             <Field label="Payer mode">
-              <XStack gap="$1.5" fw="wrap">
+              <XStack gap="$1.5" flexWrap="wrap">
                 <Chip label="single" active={state.payerMode === 'single'} onPress={() => state.setPayerMode('single')} />
                 <Chip label="multiple" active={state.payerMode === 'multiple'} onPress={() => state.setPayerMode('multiple')} />
               </XStack>
@@ -1019,7 +1019,7 @@ function AddExpenseScreen({ state }) {
         <Panel title="Split">
           <YStack gap="$3">
             <Field label="Split method">
-              <XStack gap="$1.5" fw="wrap">
+              <XStack gap="$1.5" flexWrap="wrap">
                 {splitModes.map((mode) => (
                   <Chip key={mode} label={mode} active={state.splitMode === mode} onPress={() => state.setSplitMode(mode)} />
                 ))}
@@ -1053,7 +1053,7 @@ function AddExpenseScreen({ state }) {
             ) : null}
             <YStack bg="#f4f4f5" borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3" gap="$2">
               <Label>Participants</Label>
-              <XStack fw="wrap" gap="$2">
+              <XStack flexWrap="wrap" gap="$2">
                 {state.membersForGroup.map((member) => (
                   <SizableText key={member.id} color="#18181b" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br={999} px="$3" py="$2" size="$2" fontWeight="800">
                     {member.name}
@@ -1097,7 +1097,7 @@ function AddExpenseScreen({ state }) {
               </YStack>
               <Camera size={18} color="#09090b" />
             </XStack>
-            <XStack gap="$2" fw="wrap">
+            <XStack gap="$2" flexWrap="wrap">
               <SecondaryButton icon={<Camera size={16} color="#09090b" />} label="Choose" onPress={state.chooseReceipt} />
               <SecondaryButton icon={<ReceiptText size={16} color="#09090b" />} label="Upload OCR" onPress={state.uploadReceipt} />
             </XStack>
@@ -1173,7 +1173,7 @@ function AddExpenseScreen({ state }) {
               <StatusLine label="Unassigned lines" value={unassignedReceiptItems.length ? `${unassignedReceiptItems.length} need assignment` : 'All assigned'} />
               <StatusLine label="Latest review" value={latestReceiptReview ? `${latestReceiptReview.action} · ${latestReceiptReview.itemCount} items` : 'Not reviewed'} />
             </YStack>
-            <XStack gap="$2" fw="wrap">
+            <XStack gap="$2" flexWrap="wrap">
               <SecondaryButton icon={<Check size={16} color="#09090b" />} label="Mark reviewed" onPress={state.markReceiptReviewed} />
               <SecondaryButton icon={<ListFilter size={16} color="#09090b" />} label="Use itemized split" onPress={state.applyItemizedSplit} />
             </XStack>
@@ -1182,7 +1182,7 @@ function AddExpenseScreen({ state }) {
             <Input value={state.receiptOcrText} onChangeText={state.setReceiptOcrText} placeholder="Item name 12.34" {...inputProps} />
           </Field>
           <SecondaryButton icon={<ListFilter size={16} color="#09090b" />} label="Extract for review" onPress={state.extractReceiptPreview} />
-          <XStack gap="$2" fw="wrap">
+          <XStack gap="$2" flexWrap="wrap">
             <YStack flex={1} minWidth={180} gap="$2">
               <Label>Item</Label>
               <Input value={state.itemLabel} onChangeText={state.setItemLabel} placeholder="Line item" {...inputProps} />
@@ -1212,7 +1212,7 @@ function AddExpenseScreen({ state }) {
                     </SizableText>
                   </Button>
                 </XStack>
-                <XStack gap="$1.5" fw="wrap">
+                <XStack gap="$1.5" flexWrap="wrap">
                   {state.membersForGroup.map((member) => (
                     <Chip
                       key={member.id}
@@ -1332,14 +1332,14 @@ function BalancesScreen({ state }) {
       <Panel title="Settle up">
         <YStack gap="$2">
           <Field label="Payment method">
-            <XStack gap="$1.5" fw="wrap">
+            <XStack gap="$1.5" flexWrap="wrap">
               {state.paymentMethods.map((method) => (
                 <Chip key={method} label={method.toUpperCase()} active={state.settlementMethod === method} onPress={() => state.setSettlementMethod(method)} />
               ))}
             </XStack>
           </Field>
           <Field label="Payment status">
-            <XStack gap="$1.5" fw="wrap">
+            <XStack gap="$1.5" flexWrap="wrap">
               {state.paymentStatuses.map((status) => (
                 <Chip key={status} label={status} active={state.settlementStatus === status} onPress={() => state.setSettlementStatus(status)} />
               ))}
@@ -1450,7 +1450,7 @@ function AccountScreen({ state }) {
                 {state.authSession?.user.provider ?? 'clerk'}
               </SizableText>
             </XStack>
-            <XStack gap="$2" fw="wrap">
+            <XStack gap="$2" flexWrap="wrap">
               {state.authSession ? (
                 <>
                   <SecondaryButton icon={<RefreshCcw size={16} color="#09090b" />} label="Refresh" onPress={state.refreshSession} />
@@ -1479,7 +1479,7 @@ function AccountScreen({ state }) {
               <StatusLine label="Issuer" value={state.authProviderStatus.issuerHost ?? 'Not checked'} />
               <StatusLine label="Claims" value={(state.authProviderStatus.requiredClaims ?? []).join(', ') || 'sub, iss, aud'} />
             </YStack>
-            <XStack gap="$2" fw="wrap">
+            <XStack gap="$2" flexWrap="wrap">
               <SecondaryButton
                 icon={<RefreshCcw size={16} color="#09090b" />}
                 label={state.authProviderStatus.loading ? 'Checking' : 'Check provider'}
@@ -1508,7 +1508,7 @@ function AccountScreen({ state }) {
             <Input value={state.profilePhone} onChangeText={state.setProfilePhone} placeholder="+91 90000 00000" keyboardType="phone-pad" {...inputProps} />
           </Field>
           <Field label="Preferred payment">
-            <XStack gap="$1.5" fw="wrap">
+            <XStack gap="$1.5" flexWrap="wrap">
               {state.paymentMethods.map((method) => (
                 <Chip key={method} label={method.toUpperCase()} active={state.profilePayment === method} onPress={() => state.setProfilePayment(method)} />
               ))}
@@ -1521,7 +1521,7 @@ function AccountScreen({ state }) {
       <Panel title="Profile switcher">
         <YStack gap="$3">
         <Field label="Switch profile">
-          <XStack gap="$1.5" fw="wrap">
+          <XStack gap="$1.5" flexWrap="wrap">
             {state.ledger.members.slice(0, 5).map((member) => (
               <Chip key={member.id} label={member.name} active={state.activeUserId === member.id} onPress={() => state.setActiveUserId(member.id)} />
             ))}
@@ -1684,7 +1684,7 @@ function CurrenciesScreen({ state }) {
 
       <Panel title="Report currency">
         <YStack gap="$3">
-          <XStack gap="$1.5" fw="wrap">
+          <XStack gap="$1.5" flexWrap="wrap">
             {state.currencies.map((code) => (
               <Chip key={code} label={code} active={state.currency === code} onPress={() => state.setCurrency(code)} />
             ))}
@@ -1737,7 +1737,7 @@ function AnalyticsScreen({ state }) {
       <Panel title="Trend over time">
         <YStack gap="$3">
           <Field label="Report currency">
-            <XStack gap="$1.5" fw="wrap">
+            <XStack gap="$1.5" flexWrap="wrap">
               {currencies.map((code) => (
                 <Chip key={code} label={code} active={state.currency === code} onPress={() => state.setCurrency(code)} />
               ))}
@@ -1825,7 +1825,7 @@ function ToolsScreen({ state }) {
                   </YStack>
                   <RefreshCcw size={16} color="#09090b" />
                 </XStack>
-                <XStack gap="$2" fw="wrap">
+                <XStack gap="$2" flexWrap="wrap">
                   <SecondaryButton icon={<Check size={16} color="#09090b" />} label="Keep cloud" onPress={() => state.resolveCloudConflict(conflict.id, 'cloud')} />
                   <SecondaryButton icon={<RefreshCcw size={16} color="#09090b" />} label="Keep local" onPress={() => state.resolveCloudConflict(conflict.id, 'local')} />
                 </XStack>

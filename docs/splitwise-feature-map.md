@@ -27,7 +27,7 @@ SplitClub should cover the following Splitwise-style capabilities:
 - Settle up: record cash payments and provide payment handoff links or instructions for UPI, bank, PayPal, Venmo, or future providers.
 - Recurring expenses: weekly, monthly, yearly bills and reminder offsets.
 - Offline and sync: local-first ledger, cloud sync, conflict-safe future API mutations.
-- Currencies: default currency, 100+ currency design target, group conversion workflow using current rates.
+- Currencies: default currency, 100+ currency catalog, group conversion workflow using current rates.
 - Search and filters: locate old expenses by description, notes, category, currency, attachment, group, member, or date.
 - Charts and graphs: category totals, trends over time, group spending summaries.
 - Receipt scanning and itemization: scan receipt attachments, extract items, assign items to participants.
@@ -40,7 +40,7 @@ SplitClub should cover the following Splitwise-style capabilities:
 - Mobile-first UI includes a production app shell with a focused Home workspace, activity, groups, add-expense flow, balances, and tools; web/tablet layouts gain a persistent monochrome navigation rail while Android keeps a tight five-item bottom tab bar.
 - The app shell is split into production modules for shared route constants, mobile/web screen surfaces, navigation, and reusable UI primitives instead of keeping every workspace inside `App.jsx`.
 - The visual system follows a clean monochrome Tamagui v2 surface language aligned with shadcn-style hierarchy, using Expo-compatible latest dependency ranges instead of unsupported React Native peer versions.
-- Focused workspaces cover groups, friends, invites/roles, stepped expense creation, split mode controls, balances, simplified settlements, search, category totals, recurring/receipt/export affordances, currency conversion controls, and offline persistence.
+- Focused workspaces cover groups, friends, invites/roles, stepped expense creation, split mode controls, balances, simplified settlements, search, category totals, recurring/receipt/export affordances, a 100+ code currency catalog with conversion controls, and offline persistence.
 - Domain logic is isolated in `src/domain/split.ts` and covered by Bun tests.
 - Cloudflare Worker API contract is started in `worker/index.ts` with Hono, D1/R2/Queue bindings in `wrangler.toml`.
 - Cloudflare production deployment is scripted through GitHub Actions with verified Wrangler action pins, remote D1 migrations, and Worker deploy steps.
