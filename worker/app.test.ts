@@ -385,6 +385,62 @@ describe('SplitClub Worker API', () => {
     expect(queueMessages.some((message) => JSON.stringify(message).includes('group.defaults.updated'))).toBe(true)
   })
 
+  test('rejects stale group pushes with conflict details', async () => {
+    const env = createEnv()
+
+    const groupsResponse = await request('/api/groups', {}, env)
+    const groupsBody = (await groupsResponse.json()) as { groups: Array<{ id: string; updatedAt?: string; name: string }> }
+    const goa = groupsBody.groups.find((group) => group.id === 'goa')
+    expect(goa).toBeTruthy()
+    const baseRevision = goa?.updatedAt ?? goa?.name ?? 'goa'
+
+    const firstDefaultsResponse = await request(
+      '/api/groups/goa/defaults',
+      {
+        method: 'PUT',
+        headers: { 'x-splitclub-base-revision': baseRevision },
+        body: JSON.stringify({
+          simplifyDebts: false,
+          defaultSplitMode: 'shares',
+          defaultSplits: [
+            { memberId: 'kishan', value: 1 },
+            { memberId: 'anya', value: 1 },
+            { memberId: 'dev', value: 2 },
+            { memberId: 'mia', value: 1 },
+          ],
+        }),
+      },
+      env,
+    )
+    expect(firstDefaultsResponse.status).toBe(200)
+
+    const staleDefaultsResponse = await request(
+      '/api/groups/goa/defaults',
+      {
+        method: 'PUT',
+        headers: { 'x-splitclub-base-revision': baseRevision },
+        body: JSON.stringify({
+          simplifyDebts: true,
+          defaultSplitMode: 'equal',
+          defaultSplits: [],
+        }),
+      },
+      env,
+    )
+    const staleDefaultsBody = (await staleDefaultsResponse.json()) as { error: string; conflict: { recordId: string; baseRevision: string; currentRevision?: string } }
+    expect(staleDefaultsResponse.status).toBe(409)
+    expect(staleDefaultsBody.error).toBe('group_conflict')
+    expect(staleDefaultsBody.conflict).toMatchObject({ recordId: 'goa', baseRevision })
+    expect(staleDefaultsBody.conflict.currentRevision).not.toBe(baseRevision)
+
+    const staleDeleteResponse = await request(
+      '/api/groups/goa',
+      { method: 'DELETE', headers: { 'if-unmodified-since': baseRevision } },
+      env,
+    )
+    expect(staleDeleteResponse.status).toBe(409)
+  })
+
   test('exports scoped CSV and JSON backup files', async () => {
     const env = createEnv()
 

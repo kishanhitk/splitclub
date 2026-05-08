@@ -46,6 +46,7 @@ SplitClub should cover the following Splitwise-style capabilities:
 - Cloud pull sync reports remote additions, local preserved records, and same-id merge conflicts while preserving deterministic remote-wins behavior.
 - Cloud sync conflicts keep local and remote record details so users can resolve each conflict by keeping the cloud copy or restoring the local copy.
 - Expense edit/delete/restore pushes include base revisions and the Worker returns actionable 409 conflicts when the cloud copy changed first.
+- Group defaults/delete/restore pushes also include base revisions and get actionable 409 conflicts for stale cloud writes.
 - Core expense and settlement mutations can push to the Worker when API/auth are configured, while preserving local-first behavior offline.
 - Collaboration mutations now share the same local-first push path for friends, group invites, role changes, member removals, group defaults, and group delete/restore actions.
 - Group invites can now be accepted into memberships locally and through the Worker invite-token route.
@@ -61,7 +62,7 @@ SplitClub should cover the following Splitwise-style capabilities:
 ## Next Tickets
 
 - Production OIDC provider rollout and account linking controls.
-- Production Cloudflare resource provisioning, secret setup, and broad push-side conflict coverage beyond expense lifecycle mutations.
+- Production Cloudflare resource provisioning, secret setup, and broad push-side conflict coverage beyond expense/group lifecycle mutations.
 - Receipt retry processing and stronger OCR review history.
 - Recurring rule history, skipped occurrences, and server-side scheduler automation.
 - Signed Android preview and release distribution.
