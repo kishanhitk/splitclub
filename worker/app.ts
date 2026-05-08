@@ -312,13 +312,14 @@ export function createApp() {
     const store = getStore(c.env)
     const member = currentMember(c.get('authMember'))
     try {
-      const result = await store.acceptGroupInvite(c.req.param('token'), member.id)
+      const result = await store.acceptGroupInvite(c.req.param('token'), member)
       await c.env.SYNC_QUEUE?.send({ type: 'group_invite.accepted', inviteId: result.invite.id, groupId: result.invite.groupId, userId: member.id, createdAt: new Date().toISOString() })
       return c.json(result)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Invite could not be accepted'
       if (message.includes('not found')) return c.json({ error: 'invite_not_found', message }, 404)
       if (message.includes('not pending')) return c.json({ error: 'invite_not_pending', message }, 409)
+      if (message.includes('does not match')) return c.json({ error: 'invite_forbidden', message }, 403)
       throw error
     }
   })

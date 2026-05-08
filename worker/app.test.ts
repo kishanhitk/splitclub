@@ -221,6 +221,15 @@ describe('SplitClub Worker API', () => {
     expect(inviteBody.invite.status).toBe('pending')
     expect(inviteBody.invite.token).toStartWith('join_')
 
+    const mismatchedAcceptResponse = await request(
+      `/api/invites/${inviteBody.invite.token}/accept`,
+      { method: 'POST' },
+      env,
+    )
+    const mismatchedAcceptBody = (await mismatchedAcceptResponse.json()) as { error: string }
+    expect(mismatchedAcceptResponse.status).toBe(403)
+    expect(mismatchedAcceptBody.error).toBe('invite_forbidden')
+
     const acceptInviteResponse = await request(
       `/api/invites/${inviteBody.invite.token}/accept`,
       { method: 'POST', headers: { Authorization: 'Bearer test-outsider' } },

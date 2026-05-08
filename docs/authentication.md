@@ -39,5 +39,6 @@ On each request, the Worker:
 2. Maps the provider subject to a SplitClub user through `auth_identities`.
 3. Creates or links the local user record when needed.
 4. Filters groups, expenses, balances, search, and sync payloads to the authenticated member.
+5. Verifies invite acceptance against the authenticated member email or phone before creating group membership.
 
 Run `migrations/0003_auth.sql` before enabling the production Worker.
