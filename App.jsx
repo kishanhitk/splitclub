@@ -1145,6 +1145,51 @@ function SplitClubApp() {
     }
   }
 
+  const markReceiptReviewed = async () => {
+    if (!selectedReceiptId) {
+      setReceiptLibraryStatus('Select or upload a receipt before marking review complete')
+      return
+    }
+    const localReceipt = cloudReceipts.find((receipt) => receipt.id === selectedReceiptId)
+    const localReview = {
+      id: `receipt_review_${Date.now()}`,
+      receiptId: selectedReceiptId,
+      actorId: activeUser.id,
+      action: 'reviewed',
+      source: 'manual_review',
+      ocrStatus: localReceipt?.ocrStatus ?? 'complete',
+      itemCount: receiptItems.length,
+      createdAt: new Date().toISOString(),
+    }
+
+    if (!cloudSyncReady) {
+      setCloudReceipts((receipts) => receipts.map((receipt) => (
+        receipt.id === selectedReceiptId
+          ? { ...receipt, reviewHistory: [localReview, ...(receipt.reviewHistory ?? [])] }
+          : receipt
+      )))
+      setReceiptLibraryStatus('Receipt review marked locally')
+      setSyncState('Receipt review ready')
+      return
+    }
+
+    try {
+      const response = await fetch(`${cloudApiUrl}/api/receipts/${selectedReceiptId}/review`, {
+        method: 'POST',
+        headers: sessionHeaders(authSession),
+      })
+      if (!response.ok) throw new Error(`Receipt review returned ${response.status}`)
+      const body = await response.json()
+      if (body.receipt) {
+        setCloudReceipts((receipts) => [body.receipt, ...receipts.filter((receipt) => receipt.id !== body.receipt.id)])
+      }
+      setReceiptLibraryStatus('Receipt review complete')
+      setSyncState('Receipt reviewed')
+    } catch (error) {
+      setReceiptLibraryStatus(error instanceof Error ? error.message : 'Receipt review failed')
+    }
+  }
+
   const openReceiptFile = async ({ receiptId, fileName = 'receipt', contentType }) => {
     if (!cloudSyncReady) {
       setReceiptLibraryStatus('Sign in and configure cloud sync to open receipts')
@@ -1919,6 +1964,7 @@ function SplitClubApp() {
     loadCloudReceipts,
     applyCloudReceipt,
     retryCloudReceipt,
+    markReceiptReviewed,
     openCloudReceipt,
     openSelectedExpenseReceipt,
     removeReceiptItem,
@@ -2887,12 +2933,40 @@ function GroupSettingsScreen({ state }) {
 }
 
 function AddExpenseScreen({ state }) {
+  const selectedReceipt = state.cloudReceipts.find((receipt) => receipt.id === state.selectedReceiptId) ?? null
+  const receiptDelta = roundMoney(Number(state.amount || 0) - state.itemizedTotal)
+  const unassignedReceiptItems = state.receiptItems.filter((item) => !item.assignedTo?.length)
+  const latestReceiptReview = selectedReceipt?.reviewHistory?.[0]
+
   return (
     <>
       <Panel title="Expense flow">
-        <XStack gap="$1.5" fw="wrap">
+        <XStack gap="$1" fw="wrap">
           {addExpenseSteps.map((step) => (
-            <Chip key={step.id} label={step.label} active={state.addExpenseStep === step.id} onPress={() => state.setAddExpenseStep(step.id)} />
+            <Button
+              key={step.id}
+              unstyled
+              flex={1}
+              minWidth={58}
+              bg={state.addExpenseStep === step.id ? '#09090b' : '#f4f4f5'}
+              borderWidth={1}
+              borderColor={state.addExpenseStep === step.id ? '#09090b' : '#e4e4e7'}
+              br="$1"
+              px="$1"
+              py="$2.5"
+              ai="center"
+              onPress={() => state.setAddExpenseStep(step.id)}
+              pressStyle={{ scale: 0.98, bg: state.addExpenseStep === step.id ? '#18181b' : '#ffffff' }}
+            >
+              <SizableText
+                color={state.addExpenseStep === step.id ? '#ffffff' : '#3f3f46'}
+                size="$2"
+                fontWeight="900"
+                numberOfLines={1}
+              >
+                {step.label}
+              </SizableText>
+            </Button>
           ))}
         </XStack>
       </Panel>
@@ -3137,6 +3211,33 @@ function AddExpenseScreen({ state }) {
               )
             })}
           </YStack>
+          <YStack bg="#fafafa" borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3" gap="$3">
+            <XStack ai="center" jc="space-between" gap="$3">
+              <YStack flex={1}>
+                <Text color="#09090b" fontSize={14} fontWeight="900">
+                  Review before saving
+                </Text>
+                <Muted>
+                  {selectedReceipt ? `${selectedReceipt.fileName} · ${selectedReceipt.reviewHistory?.length ?? 0} lifecycle events` : 'Upload or select a cloud receipt to track review history.'}
+                </Muted>
+              </YStack>
+              <ReceiptText size={18} color="#09090b" />
+            </XStack>
+            <YStack gap="$1.5">
+              <StatusLine label="Expense total" value={`${state.currency} ${Number(state.amount || 0).toFixed(2)}`} />
+              <StatusLine label="Itemized total" value={`${state.currency} ${state.itemizedTotal.toFixed(2)}`} />
+              <StatusLine
+                label="Difference"
+                value={receiptDelta === 0 ? 'Matched' : `${receiptDelta > 0 ? '+' : '-'}${state.currency} ${Math.abs(receiptDelta).toFixed(2)}`}
+              />
+              <StatusLine label="Unassigned lines" value={unassignedReceiptItems.length ? `${unassignedReceiptItems.length} need assignment` : 'All assigned'} />
+              <StatusLine label="Latest review" value={latestReceiptReview ? `${latestReceiptReview.action} · ${latestReceiptReview.itemCount} items` : 'Not reviewed'} />
+            </YStack>
+            <XStack gap="$2" fw="wrap">
+              <SecondaryButton icon={<Check size={16} color="#09090b" />} label="Mark reviewed" onPress={state.markReceiptReviewed} />
+              <SecondaryButton icon={<ListFilter size={16} color="#09090b" />} label="Use itemized split" onPress={state.applyItemizedSplit} />
+            </XStack>
+          </YStack>
           <Field label="OCR text">
             <Input value={state.receiptOcrText} onChangeText={state.setReceiptOcrText} placeholder="Item name 12.34" {...inputProps} />
           </Field>
@@ -3202,7 +3303,6 @@ function AddExpenseScreen({ state }) {
               </XStack>
             ))}
           </YStack>
-          <SecondaryButton icon={<ListFilter size={16} color="#09090b" />} label="Use itemized split" onPress={state.applyItemizedSplit} />
         </YStack>
         </Panel>
       ) : null}
