@@ -43,6 +43,7 @@ SplitClub should cover the following Splitwise-style capabilities:
 - The app has a Cloud sync workspace that can pull `/api/sync` data into local storage and merge remote records with local-only records.
 - Core expense and settlement mutations can push to the Worker when API/auth are configured, while preserving local-first behavior offline.
 - Collaboration mutations now share the same local-first push path for friends, group invites, role changes, member removals, group defaults, and group delete/restore actions.
+- Expense lifecycle changes now push edits, comments, deletes, and restores to the Worker while remaining non-destructive offline.
 
 ## Next Tickets
 
