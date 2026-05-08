@@ -30,3 +30,5 @@ The model prompt asks for JSON line items. If AI is not configured or the file i
 ## App Review Flow
 
 The Add screen lets users choose a receipt, run extraction, review the extracted line items, adjust assignments/amounts through the existing itemization controls, and then save the expense.
+
+When cloud sync is configured, the receipt step can also load `GET /api/receipts`, show the latest uploaded receipts, and apply a prior receipt's file name and extracted items to the current expense draft. If cloud sync is unavailable, local OCR text extraction remains available.
