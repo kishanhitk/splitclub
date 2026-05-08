@@ -283,6 +283,64 @@ describe('SplitClub Worker API', () => {
     expect(membersBody.members).toHaveLength(4)
   })
 
+  test('updates friends and rejects stale friend mutation pushes', async () => {
+    const env = createEnv()
+    const baseRevision = 'Anya|anya@example.com||bank'
+
+    const updateResponse = await request(
+      '/api/friends/anya',
+      {
+        method: 'PUT',
+        headers: { 'x-splitclub-base-revision': baseRevision },
+        body: JSON.stringify({
+          name: 'Anya Updated',
+          email: 'anya.updated@example.com',
+          preferredPayment: 'upi',
+        }),
+      },
+      env,
+    )
+    const updateBody = (await updateResponse.json()) as { friend: { id: string; name: string; email: string; preferredPayment: string } }
+    expect(updateResponse.status).toBe(200)
+    expect(updateBody.friend).toMatchObject({
+      id: 'anya',
+      name: 'Anya Updated',
+      email: 'anya.updated@example.com',
+      preferredPayment: 'upi',
+    })
+
+    const staleUpdateResponse = await request(
+      '/api/friends/anya',
+      {
+        method: 'PUT',
+        headers: { 'x-splitclub-base-revision': baseRevision },
+        body: JSON.stringify({
+          name: 'Anya Stale',
+          email: 'anya.stale@example.com',
+          preferredPayment: 'bank',
+        }),
+      },
+      env,
+    )
+    const staleUpdateBody = (await staleUpdateResponse.json()) as { error: string; conflict: { entity: string; recordId: string; baseRevision: string } }
+    expect(staleUpdateResponse.status).toBe(409)
+    expect(staleUpdateBody.error).toBe('member_conflict')
+    expect(staleUpdateBody.conflict).toMatchObject({ entity: 'member', recordId: 'anya', baseRevision })
+
+    const staleDeleteResponse = await request(
+      '/api/friends/anya',
+      {
+        method: 'DELETE',
+        headers: { 'x-splitclub-base-revision': baseRevision },
+      },
+      env,
+    )
+    const staleDeleteBody = (await staleDeleteResponse.json()) as { error: string; conflict: { entity: string; recordId: string; baseRevision: string } }
+    expect(staleDeleteResponse.status).toBe(409)
+    expect(staleDeleteBody.error).toBe('member_conflict')
+    expect(staleDeleteBody.conflict).toMatchObject({ entity: 'member', recordId: 'anya', baseRevision })
+  })
+
   test('creates an expense and returns updated search results', async () => {
     const env = createEnv()
     const response = await request(

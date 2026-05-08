@@ -94,6 +94,7 @@ export type LedgerStore = {
   updateMember(memberId: string, input: AccountUpdateInput, actorId?: string): Promise<Member>
   listFriends(): Promise<Member[]>
   createFriend(input: FriendInput, ownerId?: string): Promise<Member>
+  removeFriend(friendId: string, ownerId: string): Promise<void>
   listGroups(): Promise<Group[]>
   createGroup(input: GroupInput): Promise<Group>
   updateGroupDefaults(groupId: string, input: GroupDefaultsInput, actorId?: string): Promise<Group>
@@ -152,6 +153,7 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
   const auditEvents: AuditEvent[] = []
   const roles = new Map<string, GroupRole>()
   const invites: GroupInvite[] = []
+  const removedFriends = new Set<string>()
   const receipts: ReceiptRecord[] = []
   const receiptReviewEvents: ReceiptReviewEvent[] = []
   const recurringEvents: RecurringOccurrenceEvent[] = []
@@ -320,10 +322,15 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
       return structuredClone(updated)
     },
     async listFriends() {
-      return structuredClone(ledger.members)
+      return structuredClone(ledger.members.filter((member) => !removedFriends.has(member.id)))
     },
     async createFriend(input, _ownerId) {
+      if (input.id) removedFriends.delete(input.id)
       return this.createMember(input)
+    },
+    async removeFriend(friendId, ownerId) {
+      removedFriends.add(friendId)
+      audit('friendship', friendId, 'removed', { friendId }, ownerId)
     },
     async listGroups() {
       return structuredClone(ledger.groups.filter((group) => !group.deletedAt))
@@ -1146,6 +1153,13 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
         .run()
       await audit('friendship', friend.id, 'created', friend)
       return friend
+    },
+    async removeFriend(friendId, ownerId) {
+      await db
+        .prepare('UPDATE friendships SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND friend_id = ?')
+        .bind('removed', ownerId, friendId)
+        .run()
+      await audit('friendship', friendId, 'removed', { friendId }, ownerId)
     },
     async listGroups() {
       const groups = await db
