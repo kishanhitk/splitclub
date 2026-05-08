@@ -15,6 +15,9 @@ bucket_name = "splitclub-receipts"
 binding = "SYNC_QUEUE"
 queue = "splitclub-sync"
 
+[triggers]
+crons = ["0 3 * * *"]
+
 [ai]
 binding = "AI"
 

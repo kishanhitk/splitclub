@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { seedLedger } from '../src/data/seed'
-import { createApp, type Bindings } from './app'
+import { createApp, runRecurringScheduler, type Bindings } from './app'
 import { createMemoryLedgerStore } from './store'
 
 const queueMessages: unknown[] = []
@@ -428,6 +428,23 @@ describe('SplitClub Worker API', () => {
     const rent = updatedBody.schedules.find((schedule) => schedule.sourceExpenseId === 'e3')
     expect(rent?.dueDate).toBe('2026-08-03')
     expect(rent?.history.map((event) => event.action)).toEqual(['skipped', 'posted'])
+  })
+
+  test('scheduled recurring scan enqueues due bill notifications', async () => {
+    const env = createEnv()
+    const before = queueMessages.length
+
+    const result = await runRecurringScheduler(env, '2026-05-31')
+    const messages = queueMessages.slice(before) as Array<{ type?: string; notificationId?: string; sourceExpenseId?: string; dueDate?: string; reminderDate?: string }>
+
+    expect(result).toMatchObject({ asOf: '2026-05-31', scanned: 1, queued: 1 })
+    expect(messages).toContainEqual(expect.objectContaining({
+      type: 'recurring.due',
+      notificationId: 'recurring:e3:2026-06-03',
+      sourceExpenseId: 'e3',
+      dueDate: '2026-06-03',
+      reminderDate: '2026-05-31',
+    }))
   })
 
   test('creates friends, invites members, and updates permissions', async () => {
