@@ -119,6 +119,16 @@ export type CurrencyExposure = {
   convertedAmount: number
 }
 
+export type VisibilitySummary = {
+  viewerId: string
+  groupId?: string | null
+  selectedGroupExpenseCount: number
+  selectedGroupViewerIds: string[]
+  privateExpenseCount: number
+  privateViewerIds: string[]
+  visibleExpenseCount: number
+}
+
 export const roundMoney = (amount: number) => Math.round((amount + Number.EPSILON) * 100) / 100
 
 const distributeRemainder = (shares: Balance[], expected: number) => {
@@ -272,6 +282,45 @@ export function calculateBalances(ledger: Ledger, groupId?: string | null, curre
     .map(([memberId, amount]) => ({ memberId, amount: roundMoney(amount) }))
     .filter((balance) => Math.abs(balance.amount) >= 0.01)
     .sort((a, b) => b.amount - a.amount)
+}
+
+export function listExpenseViewers(ledger: Ledger, expense: Expense): string[] {
+  if (expense.groupId) {
+    const group = ledger.groups.find((candidate) => candidate.id === expense.groupId)
+    return group?.memberIds ?? []
+  }
+  return Array.from(new Set([expense.paidBy, ...expense.participants]))
+}
+
+export function canMemberSeeExpense(ledger: Ledger, expense: Expense, memberId: string) {
+  if (expense.deletedAt) return false
+  return listExpenseViewers(ledger, expense).includes(memberId)
+}
+
+export function visibleExpensesForMember(ledger: Ledger, memberId: string) {
+  return ledger.expenses.filter((expense) => canMemberSeeExpense(ledger, expense, memberId))
+}
+
+export function canMemberSeeBalance(ledger: Ledger, groupId: string | null, balanceMemberId: string, viewerId: string) {
+  if (groupId) {
+    const group = ledger.groups.find((candidate) => candidate.id === groupId)
+    return Boolean(group?.memberIds.includes(viewerId))
+  }
+  return balanceMemberId === viewerId
+}
+
+export function summarizeVisibility(ledger: Ledger, viewerId: string, groupId?: string | null): VisibilitySummary {
+  const selectedGroupExpenses = ledger.expenses.filter((expense) => !expense.deletedAt && groupId !== undefined && expense.groupId === groupId)
+  const privateExpenses = ledger.expenses.filter((expense) => !expense.deletedAt && !expense.groupId && canMemberSeeExpense(ledger, expense, viewerId))
+  return {
+    viewerId,
+    groupId,
+    selectedGroupExpenseCount: selectedGroupExpenses.length,
+    selectedGroupViewerIds: Array.from(new Set(selectedGroupExpenses.flatMap((expense) => listExpenseViewers(ledger, expense)))),
+    privateExpenseCount: privateExpenses.length,
+    privateViewerIds: Array.from(new Set(privateExpenses.flatMap((expense) => listExpenseViewers(ledger, expense)))),
+    visibleExpenseCount: visibleExpensesForMember(ledger, viewerId).length,
+  }
 }
 
 export function simplifyDebts(balances: Balance[], currency: string): Settlement[] {

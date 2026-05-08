@@ -3,14 +3,18 @@ import { seedLedger } from '../data/seed'
 import {
   calculateBalances,
   calculateOwedShares,
+  canMemberSeeBalance,
+  canMemberSeeExpense,
   convertExpensesToCurrency,
   getNextDueDate,
   getReminderDate,
+  listExpenseViewers,
   listUpcomingRecurringExpenses,
   searchExpenses,
   simplifyDebts,
   spendingTrend,
   summarizeCurrencyExposure,
+  summarizeVisibility,
 } from './split'
 
 describe('split engine', () => {
@@ -82,6 +86,25 @@ describe('split engine', () => {
       memberId: 'kishan',
     })
     expect(converted.expenses.find((expense) => expense.id === 'deleted-usd')?.currency).toBe('USD')
+  })
+
+  test('applies Splitwise-style privacy visibility rules', () => {
+    const groupExpense = seedLedger.expenses.find((expense) => expense.id === 'e1')
+    const privateExpense = seedLedger.expenses.find((expense) => expense.id === 'e4')
+    expect(groupExpense).toBeDefined()
+    expect(privateExpense).toBeDefined()
+
+    expect(listExpenseViewers(seedLedger, groupExpense!)).toEqual(['kishan', 'anya', 'dev', 'mia'])
+    expect(canMemberSeeExpense(seedLedger, groupExpense!, 'dev')).toBe(true)
+    expect(canMemberSeeExpense(seedLedger, privateExpense!, 'anya')).toBe(false)
+    expect(canMemberSeeExpense(seedLedger, privateExpense!, 'kishan')).toBe(true)
+    expect(canMemberSeeBalance(seedLedger, 'goa', 'dev', 'anya')).toBe(true)
+    expect(canMemberSeeBalance(seedLedger, null, 'mia', 'anya')).toBe(false)
+    expect(summarizeVisibility(seedLedger, 'kishan', 'goa')).toMatchObject({
+      selectedGroupExpenseCount: 3,
+      privateExpenseCount: 1,
+      visibleExpenseCount: 5,
+    })
   })
 
   test('generates upcoming recurring bills with reminder dates', () => {
