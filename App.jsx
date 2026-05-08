@@ -199,6 +199,7 @@ function SplitClubApp() {
   const [privateBalances, setPrivateBalances] = useState(false)
   const [canceledRecurringIds, setCanceledRecurringIds] = useState([])
   const [notificationStatus, setNotificationStatus] = useState('Not scheduled')
+  const [pushRegistrationStatus, setPushRegistrationStatus] = useState('Push not registered')
   const [scheduledReminders, setScheduledReminders] = useState([])
   const [cloudRecurringSchedules, setCloudRecurringSchedules] = useState([])
   const [recurringCloudStatus, setRecurringCloudStatus] = useState('Cloud schedules not loaded')
@@ -1582,6 +1583,39 @@ function SplitClubApp() {
     setNotificationStatus(`${plans.length} reminders scheduled`)
   }
 
+  const registerPushNotifications = async () => {
+    if (!cloudSyncReady) {
+      setPushRegistrationStatus('Sign in and configure cloud sync first')
+      return
+    }
+    const allowed = await requestReminderPermission()
+    if (!allowed) {
+      setPushRegistrationStatus('Notification permission denied')
+      return
+    }
+
+    try {
+      const tokenResponse = await Notifications.getExpoPushTokenAsync()
+      const response = await fetch(`${cloudApiUrl}/api/notifications/push-subscriptions`, {
+        method: 'POST',
+        headers: {
+          ...sessionHeaders(authSession),
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          token: tokenResponse.data,
+          platform: Platform.OS,
+          deviceName: Platform.OS === 'web' ? 'web' : 'android',
+        }),
+      })
+      if (!response.ok) throw new Error(`Push registration returned ${response.status}`)
+      setPushRegistrationStatus('Push registered for recurring bills')
+      setSyncState('Push notifications registered')
+    } catch (error) {
+      setPushRegistrationStatus(error instanceof Error ? error.message : 'Push registration failed')
+    }
+  }
+
   const cancelReminderForExpense = async (sourceExpenseId) => {
     const remaining = scheduledReminders.filter((plan) => plan.sourceExpenseId !== sourceExpenseId)
     const removed = scheduledReminders.filter((plan) => plan.sourceExpenseId === sourceExpenseId)
@@ -2002,11 +2036,13 @@ function SplitClubApp() {
     privateBalances,
     setPrivateBalances,
     notificationStatus,
+    pushRegistrationStatus,
     scheduledReminders,
     cloudRecurringSchedules,
     recurringCloudStatus,
     requestReminderPermission,
     scheduleRecurringReminders,
+    registerPushNotifications,
     settlementMethod,
     setSettlementMethod,
     settlementReference,
@@ -3929,21 +3965,27 @@ function RecurringBillsScreen({ state }) {
                 <Muted>
                   {state.notificationStatus} · {state.scheduledReminders.length} scheduled
                 </Muted>
+                <Muted>{state.pushRegistrationStatus}</Muted>
               </YStack>
               <Bell size={18} color="#09090b" />
             </XStack>
-            <XStack gap="$2" fw="wrap">
-              <SecondaryButton icon={<Bell size={16} color="#09090b" />} label="Enable" onPress={state.requestReminderPermission} />
-              <SecondaryButton icon={<RefreshCcw size={16} color="#09090b" />} label="Schedule" onPress={state.scheduleRecurringReminders} />
-              <SecondaryButton icon={<Cloud size={16} color="#09090b" />} label="Cloud" onPress={state.loadCloudRecurringSchedules} />
-            </XStack>
+            <YStack gap="$2">
+              <XStack gap="$2">
+                <SecondaryButton icon={<Bell size={16} color="#09090b" />} label="Enable" onPress={state.requestReminderPermission} />
+                <SecondaryButton icon={<RefreshCcw size={16} color="#09090b" />} label="Schedule" onPress={state.scheduleRecurringReminders} />
+              </XStack>
+              <XStack gap="$2">
+                <SecondaryButton icon={<Cloud size={16} color="#09090b" />} label="Register push" onPress={state.registerPushNotifications} />
+                <SecondaryButton icon={<Cloud size={16} color="#09090b" />} label="Cloud" onPress={state.loadCloudRecurringSchedules} />
+              </XStack>
+            </YStack>
           </YStack>
           {state.cloudRecurringSchedules.length ? (
             <YStack gap="$2">
               <Muted>{state.recurringCloudStatus}</Muted>
               {state.cloudRecurringSchedules.slice(0, 3).map((schedule) => (
-                <XStack key={schedule.sourceExpenseId} ai="center" jc="space-between" gap="$2" py="$2" borderTopWidth={1} borderColor="#f4f4f5">
-                  <YStack flex={1}>
+                <YStack key={schedule.sourceExpenseId} gap="$2" py="$2" borderTopWidth={1} borderColor="#f4f4f5">
+                  <YStack>
                     <Text color="#09090b" fontSize={14} fontWeight="900">
                       {schedule.description}
                     </Text>
@@ -3951,47 +3993,35 @@ function RecurringBillsScreen({ state }) {
                       cloud · due {schedule.dueDate} · {schedule.history?.length ?? 0} events
                     </Muted>
                   </YStack>
-                  <XStack gap="$3">
-                    <Button unstyled onPress={() => state.runCloudRecurringAction(schedule.sourceExpenseId, 'post')}>
-                      <SizableText color="#09090b" size="$2" fontWeight="900">
-                        Post
-                      </SizableText>
-                    </Button>
-                    <Button unstyled onPress={() => state.runCloudRecurringAction(schedule.sourceExpenseId, 'skip')}>
-                      <SizableText color="#71717a" size="$2" fontWeight="900">
-                        Skip
-                      </SizableText>
-                    </Button>
+                  <XStack gap="$2">
+                    <SecondaryButton icon={<Check size={16} color="#09090b" />} label="Post" onPress={() => state.runCloudRecurringAction(schedule.sourceExpenseId, 'post')} />
+                    <SecondaryButton icon={<RefreshCcw size={16} color="#09090b" />} label="Skip" onPress={() => state.runCloudRecurringAction(schedule.sourceExpenseId, 'skip')} />
                   </XStack>
-                </XStack>
+                </YStack>
               ))}
             </YStack>
           ) : <Muted>{state.recurringCloudStatus}</Muted>}
           {state.upcomingRecurring.map((expense) => (
-            <XStack key={expense.sourceExpenseId} ai="center" gap="$2" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3">
-              <YStack flex={1}>
-                <Text color="#09090b" fontSize={14} fontWeight="900">
-                  {expense.description}
-                </Text>
-                <Muted>
-                  {expense.recurrence} · due {expense.dueDate}
-                  {expense.reminderDate ? ` · remind ${expense.reminderDate}` : ''}
-                </Muted>
-              </YStack>
-              <SizableText color="#09090b" size="$3" fontWeight="900">
-                {expense.currency} {expense.amount.toFixed(0)}
-              </SizableText>
-              <Button unstyled onPress={() => state.postRecurringOccurrence(expense.sourceExpenseId)}>
-                <SizableText color="#09090b" size="$2" fontWeight="900">
-                  Post
+            <YStack key={expense.sourceExpenseId} gap="$3" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3">
+              <XStack ai="center" jc="space-between" gap="$3">
+                <YStack flex={1}>
+                  <Text color="#09090b" fontSize={14} fontWeight="900">
+                    {expense.description}
+                  </Text>
+                  <Muted>
+                    {expense.recurrence} · due {expense.dueDate}
+                    {expense.reminderDate ? ` · remind ${expense.reminderDate}` : ''}
+                  </Muted>
+                </YStack>
+                <SizableText color="#09090b" size="$3" fontWeight="900">
+                  {expense.currency} {expense.amount.toFixed(0)}
                 </SizableText>
-              </Button>
-              <Button unstyled onPress={() => state.cancelRecurring(expense.sourceExpenseId)}>
-                <SizableText color="#71717a" size="$2" fontWeight="900">
-                  Cancel
-                </SizableText>
-              </Button>
-            </XStack>
+              </XStack>
+              <XStack gap="$2">
+                <SecondaryButton icon={<Check size={16} color="#09090b" />} label="Post" onPress={() => state.postRecurringOccurrence(expense.sourceExpenseId)} />
+                <SecondaryButton icon={<RefreshCcw size={16} color="#09090b" />} label="Cancel" onPress={() => state.cancelRecurring(expense.sourceExpenseId)} />
+              </XStack>
+            </YStack>
           ))}
           {state.upcomingRecurring.length === 0 ? <Muted>No active recurring bills.</Muted> : null}
         </YStack>

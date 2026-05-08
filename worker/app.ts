@@ -241,9 +241,45 @@ export async function deliverQueueMessages(env: Bindings, messages: unknown[]) {
       payload: message,
       createdAt: message.createdAt,
     })
+    const ledger = await store.getLedger()
+    const expense = ledger.expenses.find((candidate) => candidate.id === message.sourceExpenseId)
+    const recipientIds = expense ? visibleMemberIdsForExpense(ledger, expense) : []
+    const subscriptions = await store.listPushSubscriptions(recipientIds)
+    await deliverExpoPushNotifications(subscriptions.map((subscription) => ({
+      to: subscription.token,
+      title: 'Recurring bill due',
+      body: `${message.description} · ${message.currency} ${message.amount.toFixed(2)}`,
+      data: {
+        notificationId: message.notificationId,
+        sourceExpenseId: message.sourceExpenseId,
+        dueDate: message.dueDate,
+      },
+    })))
     delivered.push(message)
   }
   return { delivered: delivered.length }
+}
+
+function visibleMemberIdsForExpense(ledger: Ledger, expense: Expense) {
+  const memberIds = new Set<string>([expense.paidBy, ...expense.participants])
+  ;(expense.payments ?? []).forEach((payment) => memberIds.add(payment.memberId))
+  if (expense.groupId) {
+    const group = ledger.groups.find((candidate) => candidate.id === expense.groupId)
+    group?.memberIds.forEach((memberId) => memberIds.add(memberId))
+  }
+  return [...memberIds]
+}
+
+async function deliverExpoPushNotifications(messages: Array<{ to: string; title: string; body: string; data: Record<string, string> }>) {
+  if (!messages.length) return
+  await fetch('https://exp.host/--/api/v2/push/send', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      accept: 'application/json',
+    },
+    body: JSON.stringify(messages),
+  }).catch(() => undefined)
 }
 
 function isRecurringDueMessage(value: unknown): value is RecurringDueQueueMessage {
@@ -887,6 +923,22 @@ export function createApp() {
       .map((event) => mapEventToNotification(event))
       .slice(0, limit)
     return c.json({ notifications })
+  })
+
+  app.post('/api/notifications/push-subscriptions', async (c) => {
+    const store = getStore(c.env)
+    const member = currentMember(c.get('authMember'))
+    const body = await c.req.json().catch(() => ({})) as { token?: unknown; platform?: unknown; deviceName?: unknown }
+    if (typeof body.token !== 'string' || !body.token.startsWith('ExponentPushToken[')) {
+      return c.json({ error: 'validation_error', message: 'Expo push token is required.' }, 400)
+    }
+    const subscription = await store.registerPushSubscription({
+      userId: member.id,
+      token: body.token,
+      platform: typeof body.platform === 'string' ? body.platform : 'unknown',
+      deviceName: typeof body.deviceName === 'string' ? body.deviceName : undefined,
+    })
+    return c.json({ subscription }, 201)
   })
 
   app.get('/api/export', async (c) => {
