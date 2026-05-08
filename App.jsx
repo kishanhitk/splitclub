@@ -23,6 +23,7 @@ import { seedLedger } from './src/data/seed'
 import {
   calculateBalances,
   exportCsv,
+  roundMoney,
   searchExpenses,
   simplifyDebts,
   spendingByCategory,
@@ -32,6 +33,8 @@ import { tamaguiConfig } from './tamagui.config'
 
 const splitModes = ['equal', 'exact', 'percent', 'shares', 'adjustment']
 const currencies = ['INR', 'USD', 'EUR', 'GBP', 'SGD']
+const expenseKinds = ['expense', 'refund', 'reimbursement', 'debt']
+const categories = ['Transport', 'Food', 'Lodging', 'Rent', 'Groceries', 'Utilities', 'Tickets']
 
 const navItems = [
   { id: 'activity', label: 'Activity', icon: ReceiptText },
@@ -58,6 +61,18 @@ function SplitClubApp() {
   const [amount, setAmount] = useState('3600')
   const [description, setDescription] = useState('Airport cab')
   const [currency, setCurrency] = useState('INR')
+  const [expenseKind, setExpenseKind] = useState('expense')
+  const [category, setCategory] = useState('Transport')
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
+  const [notes, setNotes] = useState('')
+  const [paidBy, setPaidBy] = useState('kishan')
+  const [attachmentName, setAttachmentName] = useState('receipt.jpg')
+  const [itemLabel, setItemLabel] = useState('Ticket')
+  const [itemAmount, setItemAmount] = useState('900')
+  const [receiptItems, setReceiptItems] = useState([
+    { id: 'item-1', label: 'Cab fare', amount: 2400, assignedTo: ['kishan', 'anya', 'dev', 'mia'] },
+    { id: 'item-2', label: 'Toll', amount: 1200, assignedTo: ['kishan', 'anya', 'dev', 'mia'] },
+  ])
   const [syncState, setSyncState] = useState('Offline ready')
 
   useEffect(() => {
@@ -85,6 +100,11 @@ function SplitClubApp() {
   )
   const totalSpending = categoryTotals.reduce((sum, item) => sum + item.amount, 0)
   const currentTitle = navItems.find((item) => item.id === activeTab)?.label ?? 'Activity'
+  const splitPreview = useMemo(
+    () => buildSplitPreview(Number(amount), splitMode, membersForGroup.map((member) => member.id)),
+    [amount, splitMode, membersForGroup],
+  )
+  const itemizedTotal = receiptItems.reduce((sum, item) => sum + Number(item.amount || 0), 0)
 
   const memberName = (memberId) => ledger.members.find((member) => member.id === memberId)?.name ?? 'Someone'
 
@@ -94,13 +114,13 @@ function SplitClubApp() {
       Alert.alert('Check the bill', 'Add a description and a valid amount.')
       return
     }
+    if (!splitPreview.valid) {
+      Alert.alert('Split does not balance', splitPreview.message)
+      return
+    }
 
     const participants = membersForGroup.map((member) => member.id)
-    const splits = participants.map((memberId, index) => {
-      if (splitMode === 'percent') return { memberId, value: index === 0 ? 40 : 60 / Math.max(participants.length - 1, 1) }
-      if (splitMode === 'shares') return { memberId, value: index === 0 ? 2 : 1 }
-      return { memberId, value: numericAmount / participants.length }
-    })
+    const splits = splitMode === 'equal' ? [] : splitPreview.splits
 
     const expense = {
       id: `expense-${Date.now()}`,
@@ -108,20 +128,49 @@ function SplitClubApp() {
       description: description.trim(),
       amount: numericAmount,
       currency,
-      paidBy: participants[0],
+      paidBy: paidBy || participants[0],
       participants,
       splitMode,
       splits: splitMode === 'equal' ? [] : splits,
-      category: splitMode === 'adjustment' ? 'Adjustment' : 'Transport',
-      kind: 'expense',
-      date: new Date().toISOString().slice(0, 10),
-      notes: `${splitMode} split created on ${Platform.OS}`,
+      category: splitMode === 'adjustment' ? 'Adjustment' : category,
+      kind: expenseKind,
+      date,
+      notes: notes || `${expenseKind} · ${splitMode} split created on ${Platform.OS}`,
+      attachmentName: attachmentName || undefined,
+      receiptItems: receiptItems.map((item) => ({
+        ...item,
+        amount: Number(item.amount),
+        assignedTo: item.assignedTo.length > 0 ? item.assignedTo : participants,
+      })),
       recurrence: 'none',
     }
 
     setLedger((current) => ({ ...current, expenses: [expense, ...current.expenses] }))
     setSyncState('Saved locally')
     setActiveTab('activity')
+  }
+
+  const addReceiptItem = () => {
+    const numericAmount = Number(itemAmount)
+    if (!itemLabel.trim() || Number.isNaN(numericAmount) || numericAmount <= 0) {
+      Alert.alert('Check item', 'Add an item label and valid amount.')
+      return
+    }
+    setReceiptItems((items) => [
+      ...items,
+      {
+        id: `item-${Date.now()}`,
+        label: itemLabel.trim(),
+        amount: numericAmount,
+        assignedTo: membersForGroup.map((member) => member.id),
+      },
+    ])
+    setItemLabel('')
+    setItemAmount('')
+  }
+
+  const removeReceiptItem = (itemId) => {
+    setReceiptItems((items) => items.filter((item) => item.id !== itemId))
   }
 
   const addSettlement = (from, to, settlementAmount) => {
@@ -170,12 +219,33 @@ function SplitClubApp() {
     setQuery,
     splitMode,
     setSplitMode,
+    splitPreview,
     amount,
     setAmount,
     description,
     setDescription,
     currency,
     setCurrency,
+    expenseKind,
+    setExpenseKind,
+    category,
+    setCategory,
+    date,
+    setDate,
+    notes,
+    setNotes,
+    paidBy,
+    setPaidBy,
+    attachmentName,
+    setAttachmentName,
+    itemLabel,
+    setItemLabel,
+    itemAmount,
+    setItemAmount,
+    receiptItems,
+    itemizedTotal,
+    addReceiptItem,
+    removeReceiptItem,
     syncState,
     membersForGroup,
     visibleExpenses,
@@ -237,6 +307,67 @@ function Header({ title, selectedGroup, syncState }) {
       </YStack>
     </YStack>
   )
+}
+
+function buildSplitPreview(amount, splitMode, participants) {
+  if (!participants.length || Number.isNaN(amount) || amount <= 0) {
+    return { valid: false, message: 'Enter a valid amount', splits: [], preview: [] }
+  }
+
+  if (splitMode === 'equal') {
+    const preview = distributePreview(
+      participants.map((memberId) => ({ memberId, amount: amount / participants.length })),
+      amount,
+    )
+    return { valid: true, message: 'Balanced', splits: [], preview }
+  }
+
+  if (splitMode === 'percent') {
+    const splits = participants.map((memberId, index) => ({
+      memberId,
+      value: index === 0 ? 40 : 60 / Math.max(participants.length - 1, 1),
+    }))
+    const total = roundMoney(splits.reduce((sum, split) => sum + split.value, 0))
+    const preview = distributePreview(
+      splits.map((split) => ({ memberId: split.memberId, amount: amount * (split.value / 100) })),
+      amount,
+    )
+    return { valid: total === 100, message: total === 100 ? '100% allocated' : `${total}% allocated`, splits, preview }
+  }
+
+  if (splitMode === 'shares') {
+    const splits = participants.map((memberId, index) => ({ memberId, value: index === 0 ? 2 : 1 }))
+    const totalShares = splits.reduce((sum, split) => sum + split.value, 0)
+    const preview = distributePreview(
+      splits.map((split) => ({ memberId: split.memberId, amount: amount * (split.value / totalShares) })),
+      amount,
+    )
+    return { valid: totalShares > 0, message: `${totalShares} shares`, splits, preview }
+  }
+
+  const equalAmount = amount / participants.length
+  const splits = participants.map((memberId) => ({ memberId, value: roundMoney(equalAmount) }))
+  const balanced = distributePreview(
+    splits.map((split) => ({ memberId: split.memberId, amount: split.value })),
+    amount,
+  )
+  const adjustedSplits = balanced.map((share) => ({ memberId: share.memberId, value: share.amount }))
+  const total = roundMoney(adjustedSplits.reduce((sum, split) => sum + split.value, 0))
+  return {
+    valid: total === roundMoney(amount),
+    message: total === roundMoney(amount) ? 'Exact total matches' : `${total.toFixed(2)} allocated`,
+    splits: adjustedSplits,
+    preview: balanced,
+  }
+}
+
+function distributePreview(shares, expected) {
+  const rounded = shares.map((share) => ({ ...share, amount: roundMoney(share.amount) }))
+  const difference = roundMoney(expected - rounded.reduce((sum, share) => sum + share.amount, 0))
+  if (rounded.length > 0 && difference !== 0) {
+    rounded[0] = { ...rounded[0], amount: roundMoney(rounded[0].amount + difference) }
+  }
+  return rounded
 }
 
 function ActivityScreen({ state }) {
@@ -315,6 +446,13 @@ function AddExpenseScreen({ state }) {
     <>
       <Panel title="New expense">
         <YStack gap="$3">
+          <Field label="Type">
+            <XStack gap="$1.5" fw="wrap">
+              {expenseKinds.map((kind) => (
+                <Chip key={kind} label={kind} active={state.expenseKind === kind} onPress={() => state.setExpenseKind(kind)} />
+              ))}
+            </XStack>
+          </Field>
           <Field label="Description">
             <Input value={state.description} onChangeText={state.setDescription} placeholder="What was this for?" {...inputProps} />
           </Field>
@@ -332,6 +470,27 @@ function AddExpenseScreen({ state }) {
               </XStack>
             </YStack>
           </XStack>
+          <XStack gap="$2" fw="wrap">
+            <YStack flex={1} minWidth={180} gap="$2">
+              <Label>Paid by</Label>
+              <XStack gap="$1.5" fw="wrap">
+                {state.membersForGroup.map((member) => (
+                  <Chip key={member.id} label={member.name} active={state.paidBy === member.id} onPress={() => state.setPaidBy(member.id)} />
+                ))}
+              </XStack>
+            </YStack>
+            <YStack flex={1} minWidth={180} gap="$2">
+              <Label>Date</Label>
+              <Input value={state.date} onChangeText={state.setDate} placeholder="YYYY-MM-DD" {...inputProps} />
+            </YStack>
+          </XStack>
+          <Field label="Category">
+            <XStack gap="$1.5" fw="wrap">
+              {categories.map((category) => (
+                <Chip key={category} label={category} active={state.category === category} onPress={() => state.setCategory(category)} />
+              ))}
+            </XStack>
+          </Field>
           <Field label="Split method">
             <XStack gap="$1.5" fw="wrap">
               {splitModes.map((mode) => (
@@ -349,18 +508,74 @@ function AddExpenseScreen({ state }) {
               ))}
             </XStack>
           </YStack>
+          <YStack bg={state.splitPreview.valid ? '#fafafa' : '#fff1f2'} borderWidth={1} borderColor={state.splitPreview.valid ? '#e4e4e7' : '#fecdd3'} br="$3" p="$3" gap="$2">
+            <XStack ai="center" jc="space-between">
+              <Label>Split validation</Label>
+              <SizableText color={state.splitPreview.valid ? '#09090b' : '#be123c'} size="$2" fontWeight="900">
+                {state.splitPreview.message}
+              </SizableText>
+            </XStack>
+            {state.splitPreview.preview.map((share) => (
+              <XStack key={share.memberId} jc="space-between">
+                <Muted>{state.memberName(share.memberId)}</Muted>
+                <SizableText color="#09090b" size="$2" fontWeight="900">
+                  {state.currency} {share.amount.toFixed(2)}
+                </SizableText>
+              </XStack>
+            ))}
+          </YStack>
+          <Field label="Notes">
+            <Input value={state.notes} onChangeText={state.setNotes} placeholder="Internal note, memo, or reminder context" {...inputProps} />
+          </Field>
           <PrimaryButton icon={<Plus size={17} color="#ffffff" />} label="Save expense" onPress={state.addExpense} />
         </YStack>
       </Panel>
 
-      <Panel title="Production flows">
-        <FeatureList
-          rows={[
-            ['Receipt itemization', 'Scan or attach a receipt, then assign each item to people.'],
-            ['Recurring bills', 'Rent, utilities, subscriptions, and reminders stay separate from one-time bills.'],
-            ['Split validation', 'Exact, percent, shares, and adjustments must reconcile before save.'],
-          ]}
-        />
+      <Panel title="Receipt itemization">
+        <YStack gap="$3">
+          <Field label="Attachment">
+            <Input value={state.attachmentName} onChangeText={state.setAttachmentName} placeholder="receipt.jpg" {...inputProps} />
+          </Field>
+          <XStack gap="$2" fw="wrap">
+            <YStack flex={1} minWidth={180} gap="$2">
+              <Label>Item</Label>
+              <Input value={state.itemLabel} onChangeText={state.setItemLabel} placeholder="Line item" {...inputProps} />
+            </YStack>
+            <YStack flex={1} minWidth={140} gap="$2">
+              <Label>Amount</Label>
+              <Input value={state.itemAmount} onChangeText={state.setItemAmount} keyboardType="decimal-pad" placeholder="0.00" {...inputProps} />
+            </YStack>
+          </XStack>
+          <SecondaryButton icon={<Plus size={16} color="#09090b" />} label="Add receipt item" onPress={state.addReceiptItem} />
+          <YStack gap="$2">
+            {state.receiptItems.map((item) => (
+              <XStack key={item.id} ai="center" gap="$2" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
+                <YStack flex={1}>
+                  <Text color="#09090b" fontSize={14} fontWeight="900">
+                    {item.label}
+                  </Text>
+                  <Muted>Assigned to {item.assignedTo.map(state.memberName).join(', ')}</Muted>
+                </YStack>
+                <SizableText color="#09090b" size="$3" fontWeight="900">
+                  {state.currency} {Number(item.amount).toFixed(2)}
+                </SizableText>
+                <Button unstyled onPress={() => state.removeReceiptItem(item.id)}>
+                  <SizableText color="#71717a" size="$2" fontWeight="900">
+                    Remove
+                  </SizableText>
+                </Button>
+              </XStack>
+            ))}
+          </YStack>
+          <XStack ai="center" jc="space-between" bg="#f4f4f5" br="$3" p="$3">
+            <SizableText color="#3f3f46" size="$2" fontWeight="900">
+              Itemized total
+            </SizableText>
+            <SizableText color="#09090b" size="$3" fontWeight="900">
+              {state.currency} {state.itemizedTotal.toFixed(2)}
+            </SizableText>
+          </XStack>
+        </YStack>
       </Panel>
     </>
   )

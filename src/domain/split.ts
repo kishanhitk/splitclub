@@ -1,5 +1,5 @@
 export type SplitMode = 'equal' | 'exact' | 'percent' | 'shares' | 'adjustment'
-export type ExpenseKind = 'expense' | 'settlement' | 'refund' | 'debt'
+export type ExpenseKind = 'expense' | 'settlement' | 'refund' | 'reimbursement' | 'debt'
 export type Recurrence = 'none' | 'weekly' | 'monthly' | 'yearly'
 
 export type Member = {
