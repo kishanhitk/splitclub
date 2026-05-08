@@ -5,9 +5,11 @@ import * as WebBrowser from 'expo-web-browser'
 import { useEffect, useMemo, useState } from 'react'
 import { Alert, Platform, SafeAreaView } from 'react-native'
 import {
+  BarChart3,
   Bell,
   Camera,
   Check,
+  ChevronRight,
   CircleDollarSign,
   Download,
   Home,
@@ -17,11 +19,14 @@ import {
   Plus,
   ReceiptText,
   RefreshCcw,
+  Repeat,
   Search,
   Settings,
   TrendingUp,
+  UserCircle,
   Users,
   WalletCards,
+  Wrench,
 } from 'lucide-react-native'
 import { Button, Input, ScrollView, SizableText, TamaguiProvider, Text, XStack, YStack } from 'tamagui'
 import { seedLedger } from './src/data/seed'
@@ -64,7 +69,14 @@ const navItems = [
   { id: 'groups', label: 'Groups', icon: Users },
   { id: 'add', label: 'Add', icon: Plus },
   { id: 'balances', label: 'Balances', icon: WalletCards },
-  { id: 'settings', label: 'Settings', icon: Settings },
+  { id: 'settings', label: 'More', icon: Settings },
+]
+
+const moreDestinations = [
+  { id: 'account', label: 'Account', description: 'Profile, privacy, and sign-in', icon: UserCircle },
+  { id: 'recurring', label: 'Recurring', description: 'Bills and native reminder scheduling', icon: Repeat },
+  { id: 'analytics', label: 'Analytics', description: 'Category spend and monthly trends', icon: BarChart3 },
+  { id: 'tools', label: 'Tools', description: 'Export, restore, storage, and sync utilities', icon: Wrench },
 ]
 
 export default function App() {
@@ -79,6 +91,7 @@ function SplitClubApp() {
   const [ledger, setLedger] = useState(seedLedger)
   const [selectedGroupId, setSelectedGroupId] = useState('goa')
   const [activeTab, setActiveTab] = useState('activity')
+  const [moreSection, setMoreSection] = useState('account')
   const [query, setQuery] = useState('')
   const [splitMode, setSplitMode] = useState('equal')
   const [amount, setAmount] = useState('3600')
@@ -159,7 +172,10 @@ function SplitClubApp() {
     [ledger, selectedGroupId, currency],
   )
   const totalSpending = categoryTotals.reduce((sum, item) => sum + item.amount, 0)
-  const currentTitle = navItems.find((item) => item.id === activeTab)?.label ?? 'Activity'
+  const currentTitle =
+    activeTab === 'settings'
+      ? moreDestinations.find((item) => item.id === moreSection)?.label ?? 'More'
+      : navItems.find((item) => item.id === activeTab)?.label ?? 'Activity'
   const splitPreview = useMemo(
     () => buildSplitPreview(Number(amount), splitMode, membersForGroup.map((member) => member.id)),
     [amount, splitMode, membersForGroup],
@@ -529,6 +545,8 @@ function SplitClubApp() {
     setSelectedGroupId,
     activeTab,
     setActiveTab,
+    moreSection,
+    setMoreSection,
     query,
     setQuery,
     splitMode,
@@ -613,7 +631,7 @@ function SplitClubApp() {
               {activeTab === 'groups' && <GroupsScreen state={appState} />}
               {activeTab === 'add' && <AddExpenseScreen state={appState} />}
               {activeTab === 'balances' && <BalancesScreen state={appState} />}
-              {activeTab === 'settings' && <SettingsScreen state={appState} />}
+              {activeTab === 'settings' && <MoreScreen state={appState} />}
             </YStack>
           </ScrollView>
         </YStack>
@@ -1048,67 +1066,117 @@ function BalancesScreen({ state }) {
   )
 }
 
-function SettingsScreen({ state }) {
+function MoreScreen({ state }) {
   return (
     <>
-      <Panel title="Profile and privacy">
-        <YStack gap="$3">
-          <XStack ai="center" jc="space-between" gap="$3">
-            <YStack>
-              <Text color="#09090b" fontSize={16} fontWeight="900">
-                {state.activeUser.name}
-              </Text>
-              <Muted>
-                {state.authSession ? 'Signed in' : 'Signed out'} · {state.activeUser.email ?? state.activeUser.phone ?? state.activeUser.id} · {state.selectedRole}
-              </Muted>
-            </YStack>
-          </XStack>
-          <YStack bg="#f4f4f5" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3" gap="$2">
-            <XStack ai="center" jc="space-between" gap="$3">
-              <YStack flex={1}>
-                <Text color="#09090b" fontSize={14} fontWeight="900">
-                  Session
-                </Text>
-                <Muted>{state.authSession ? `Expires ${new Date(state.authSession.expiresAt).toLocaleString()}` : 'OIDC sign-in is ready for Android and web.'}</Muted>
-              </YStack>
-              <SizableText color="#09090b" size="$2" fontWeight="900">
-                {state.authSession?.user.provider ?? 'clerk'}
-              </SizableText>
-            </XStack>
-            <XStack gap="$2" fw="wrap">
-              {state.authSession ? (
-                <>
-                  <SecondaryButton icon={<RefreshCcw size={16} color="#09090b" />} label="Refresh" onPress={state.refreshSession} />
-                  <SecondaryButton icon={<LogOut size={16} color="#09090b" />} label="Sign out" onPress={state.signOut} />
-                </>
-              ) : (
-                <SecondaryButton icon={<LogIn size={16} color="#09090b" />} label="Sign in" onPress={state.signIn} />
-              )}
-            </XStack>
-          </YStack>
-          <Field label="Switch profile">
-            <XStack gap="$1.5" fw="wrap">
-              {state.ledger.members.slice(0, 5).map((member) => (
-                <Chip key={member.id} label={member.name} active={state.activeUserId === member.id} onPress={() => state.setActiveUserId(member.id)} />
-              ))}
-            </XStack>
-          </Field>
-          <Button unstyled onPress={() => state.setPrivateBalances(!state.privateBalances)}>
-            <XStack ai="center" jc="space-between" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
-              <YStack>
-                <Text color="#09090b" fontSize={14} fontWeight="900">
-                  Private balances
-                </Text>
-                <Muted>{state.privateBalances ? 'Only show balances to involved members.' : 'Group members can see shared balances.'}</Muted>
-              </YStack>
-              <SizableText color="#09090b" size="$2" fontWeight="900">
-                {state.privateBalances ? 'On' : 'Off'}
-              </SizableText>
-            </XStack>
-          </Button>
+      <Panel title="More">
+        <YStack gap="$2">
+          {moreDestinations.map((item) => {
+            const Icon = item.icon
+            const active = state.moreSection === item.id
+            return (
+              <Button key={item.id} unstyled onPress={() => state.setMoreSection(item.id)}>
+                <XStack
+                  ai="center"
+                  gap="$3"
+                  bg={active ? '#09090b' : '#ffffff'}
+                  borderWidth={1}
+                  borderColor={active ? '#09090b' : '#e4e4e7'}
+                  br="$3"
+                  p="$3"
+                >
+                  <YStack ai="center" jc="center" h={38} w={38} br={999} bg={active ? '#27272a' : '#f4f4f5'}>
+                    <Icon size={18} color={active ? '#ffffff' : '#09090b'} />
+                  </YStack>
+                  <YStack flex={1}>
+                    <Text color={active ? '#ffffff' : '#09090b'} fontSize={15} fontWeight="900">
+                      {item.label}
+                    </Text>
+                    <SizableText color={active ? '#d4d4d8' : '#71717a'} size="$2" lineHeight={17}>
+                      {item.description}
+                    </SizableText>
+                  </YStack>
+                  <ChevronRight size={17} color={active ? '#ffffff' : '#71717a'} />
+                </XStack>
+              </Button>
+            )
+          })}
         </YStack>
       </Panel>
 
+      {state.moreSection === 'account' ? <AccountScreen state={state} /> : null}
+      {state.moreSection === 'recurring' ? <RecurringBillsScreen state={state} /> : null}
+      {state.moreSection === 'analytics' ? <AnalyticsScreen state={state} /> : null}
+      {state.moreSection === 'tools' ? <ToolsScreen state={state} /> : null}
+    </>
+  )
+}
+
+function AccountScreen({ state }) {
+  return (
+    <Panel title="Profile and privacy">
+      <YStack gap="$3">
+        <XStack ai="center" jc="space-between" gap="$3">
+          <YStack>
+            <Text color="#09090b" fontSize={16} fontWeight="900">
+              {state.activeUser.name}
+            </Text>
+            <Muted>
+              {state.authSession ? 'Signed in' : 'Signed out'} · {state.activeUser.email ?? state.activeUser.phone ?? state.activeUser.id} · {state.selectedRole}
+            </Muted>
+          </YStack>
+        </XStack>
+        <YStack bg="#f4f4f5" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3" gap="$2">
+          <XStack ai="center" jc="space-between" gap="$3">
+            <YStack flex={1}>
+              <Text color="#09090b" fontSize={14} fontWeight="900">
+                Session
+              </Text>
+              <Muted>{state.authSession ? `Expires ${new Date(state.authSession.expiresAt).toLocaleString()}` : 'OIDC sign-in is ready for Android and web.'}</Muted>
+            </YStack>
+            <SizableText color="#09090b" size="$2" fontWeight="900">
+              {state.authSession?.user.provider ?? 'clerk'}
+            </SizableText>
+          </XStack>
+          <XStack gap="$2" fw="wrap">
+            {state.authSession ? (
+              <>
+                <SecondaryButton icon={<RefreshCcw size={16} color="#09090b" />} label="Refresh" onPress={state.refreshSession} />
+                <SecondaryButton icon={<LogOut size={16} color="#09090b" />} label="Sign out" onPress={state.signOut} />
+              </>
+            ) : (
+              <SecondaryButton icon={<LogIn size={16} color="#09090b" />} label="Sign in" onPress={state.signIn} />
+            )}
+          </XStack>
+        </YStack>
+        <Field label="Switch profile">
+          <XStack gap="$1.5" fw="wrap">
+            {state.ledger.members.slice(0, 5).map((member) => (
+              <Chip key={member.id} label={member.name} active={state.activeUserId === member.id} onPress={() => state.setActiveUserId(member.id)} />
+            ))}
+          </XStack>
+        </Field>
+        <Button unstyled onPress={() => state.setPrivateBalances(!state.privateBalances)}>
+          <XStack ai="center" jc="space-between" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
+            <YStack>
+              <Text color="#09090b" fontSize={14} fontWeight="900">
+                Private balances
+              </Text>
+              <Muted>{state.privateBalances ? 'Only show balances to involved members.' : 'Group members can see shared balances.'}</Muted>
+            </YStack>
+            <SizableText color="#09090b" size="$2" fontWeight="900">
+              {state.privateBalances ? 'On' : 'Off'}
+            </SizableText>
+          </XStack>
+        </Button>
+      </YStack>
+    </Panel>
+  )
+}
+
+function AnalyticsScreen({ state }) {
+  return (
+    <>
       <Panel title="Spending totals">
         {state.categoryTotals.map((item) => (
           <XStack key={item.category} ai="center" gap="$2">
@@ -1126,7 +1194,7 @@ function SettingsScreen({ state }) {
       </Panel>
 
       <Panel title="Trend over time">
-        <YStack gap="$2">
+        <YStack gap="$3">
           <Field label="Report currency">
             <XStack gap="$1.5" fw="wrap">
               {currencies.map((code) => (
@@ -1154,7 +1222,13 @@ function SettingsScreen({ state }) {
           ))}
         </YStack>
       </Panel>
+    </>
+  )
+}
 
+function ToolsScreen({ state }) {
+  return (
+    <>
       <Panel title="Tools">
         <FeatureList
           rows={[
@@ -1169,7 +1243,13 @@ function SettingsScreen({ state }) {
           <SecondaryButton icon={<RefreshCcw size={16} color="#09090b" />} label="Reset demo" onPress={state.restoreDemo} />
         </XStack>
       </Panel>
+    </>
+  )
+}
 
+function RecurringBillsScreen({ state }) {
+  return (
+    <>
       <Panel title="Recurring bills">
         <YStack gap="$2">
           <YStack bg="#f4f4f5" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3" gap="$2">
