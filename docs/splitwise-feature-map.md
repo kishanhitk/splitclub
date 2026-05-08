@@ -57,6 +57,7 @@ SplitClub should cover the following Splitwise-style capabilities:
 - Expense lifecycle changes now push edits, comments, deletes, and restores to the Worker while remaining non-destructive offline.
 - Receipt uploads can be stored in R2, opened from the cloud receipt library, listed with OCR review history, retried through Worker OCR, attached to saved expenses, and reused in expense creation with extracted line items.
 - GitHub CI verifies web/domain checks and Android debug APK builds for pull requests, then publishes installable debug APK artifacts.
+- A manual Android release workflow can build, zipalign, sign, verify, and upload signed APK artifacts when release keystore secrets are configured.
 - Recurring bills can be scheduled for reminders, loaded from the Worker, posted or skipped with server-visible history, and advanced to their next due date.
 
 ## Next Tickets
@@ -65,4 +66,4 @@ SplitClub should cover the following Splitwise-style capabilities:
 - Production Cloudflare resource provisioning, secret setup, and broad push-side conflict coverage beyond expense/group lifecycle mutations.
 - Richer receipt-to-expense review affordances and direct expense-detail receipt viewer controls.
 - Background scheduler automation for recurring reminders and due bill notifications.
-- Signed Android preview and release distribution.
+- Store-track Android release packaging with Play App Signing or an equivalent distribution channel.

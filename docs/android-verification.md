@@ -71,6 +71,21 @@ Download the `splitclub-android-debug-apk` artifact from a successful workflow r
 adb install app-debug.apk
 ```
 
+## Signed Release APK
+
+`.github/workflows/android-release.yml` is a manual `workflow_dispatch` workflow for signed Android preview/release artifacts.
+
+Required repository or production-environment secrets:
+
+- `ANDROID_RELEASE_KEYSTORE_BASE64`: base64-encoded Java keystore file.
+- `ANDROID_RELEASE_KEYSTORE_PASSWORD`: keystore password.
+- `ANDROID_RELEASE_KEY_ALIAS`: signing key alias.
+- `ANDROID_RELEASE_KEY_PASSWORD`: signing key password.
+
+The workflow runs Bun install, Expo dependency alignment, typecheck, Bun tests, Expo Android prebuild, Gradle `assembleRelease`, Android build-tools `zipalign`, and Android build-tools `apksigner sign` plus `apksigner verify --print-certs`.
+
+Successful runs upload a `splitclub-android-signed-apk` artifact containing `splitclub-release.apk` and `splitclub-release.apk.sha256`. The workflow fails before install/build work if any signing secret is missing.
+
 ## Current Local Result
 
 The Expo project health check passes with `18/18 checks passed`.
