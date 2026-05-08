@@ -18,6 +18,7 @@ import {
 import type { Ledger, Member } from '../src/domain/split'
 import {
   calculateBalances,
+  calculateDirectSettlements,
   calculateFriendBalanceSummaries,
   exportCsv,
   exportJsonBackup,
@@ -247,6 +248,7 @@ export function createApp() {
     const validation = validateGroupDefaultSplits(payload.defaultSplitMode, group.memberIds, payload.defaultSplits)
     if (!validation.valid) return c.json({ error: 'invalid_group_defaults', message: validation.message }, 400)
     const updated = await store.updateGroupDefaults(group.id, {
+      simplifyDebts: payload.simplifyDebts,
       defaultSplitMode: payload.defaultSplitMode,
       defaultSplits: payload.defaultSplitMode === 'equal' ? [] : payload.defaultSplits,
     }, member.id)
@@ -484,7 +486,11 @@ export function createApp() {
     const ledger = scopeLedger(await store.getLedger(), member.id)
     const currency = c.req.query('currency') ?? ledger.defaultCurrency
     const balances = calculateBalances(ledger, groupId, currency)
-    return c.json({ balances, settlements: simplifyDebts(balances, currency) })
+    const group = groupId ? ledger.groups.find((candidate) => candidate.id === groupId) : null
+    const settlements = group?.simplifyDebts ?? false
+      ? simplifyDebts(balances, currency)
+      : calculateDirectSettlements(ledger, groupId, currency)
+    return c.json({ balances, settlements })
   })
 
   app.get('/api/sync', async (c) => {
