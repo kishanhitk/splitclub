@@ -1,5 +1,6 @@
 import { StatusBar } from 'expo-status-bar'
 import * as AuthSession from 'expo-auth-session'
+import * as Notifications from 'expo-notifications'
 import * as WebBrowser from 'expo-web-browser'
 import { useEffect, useMemo, useState } from 'react'
 import { Alert, Platform, SafeAreaView } from 'react-native'
@@ -34,12 +35,22 @@ import {
   spendingByCategory,
   spendingTrend,
 } from './src/domain/split'
+import { buildReminderNotifications } from './src/notifications/reminders'
 import { getAuthProviderConfig, hasRemoteAuthConfig } from './src/auth/provider'
 import { loadLedger, resetLedger, saveLedger } from './src/storage/offline'
 import { clearSession, createLocalSession, isSessionExpired, loadSession, refreshLocalSession, saveSession } from './src/storage/session'
 import { tamaguiConfig } from './tamagui.config'
 
 WebBrowser.maybeCompleteAuthSession()
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: false,
+    shouldSetBadge: false,
+  }),
+})
 
 const splitModes = ['equal', 'exact', 'percent', 'shares', 'adjustment']
 const currencies = ['INR', 'USD', 'EUR', 'GBP', 'SGD']
@@ -99,6 +110,8 @@ function SplitClubApp() {
   })
   const [privateBalances, setPrivateBalances] = useState(false)
   const [canceledRecurringIds, setCanceledRecurringIds] = useState([])
+  const [notificationStatus, setNotificationStatus] = useState('Not scheduled')
+  const [scheduledReminders, setScheduledReminders] = useState([])
   const [authSession, setAuthSession] = useState(null)
   const [syncState, setSyncState] = useState('Offline ready')
 
@@ -400,8 +413,69 @@ function SplitClubApp() {
     setSyncState('Member removed')
   }
 
+  const requestReminderPermission = async () => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && !('Notification' in window)) {
+      setNotificationStatus('Web notifications unavailable')
+      return false
+    }
+    const existing = await Notifications.getPermissionsAsync()
+    const finalStatus = existing.granted ? existing : await Notifications.requestPermissionsAsync()
+    setNotificationStatus(finalStatus.granted ? 'Notifications enabled' : 'Notifications denied')
+    return finalStatus.granted
+  }
+
+  const scheduleRecurringReminders = async () => {
+    const plans = buildReminderNotifications(upcomingRecurring)
+    if (!plans.length) {
+      setScheduledReminders([])
+      setNotificationStatus('No reminders to schedule')
+      return
+    }
+
+    const allowed = await requestReminderPermission()
+    if (!allowed) return
+
+    if (Platform.OS === 'web') {
+      localStorage.setItem('splitclub.webReminders.v1', JSON.stringify(plans))
+      setScheduledReminders(plans)
+      setNotificationStatus(`${plans.length} web reminders saved`)
+      return
+    }
+
+    await Promise.all(
+      plans.map((plan) =>
+        Notifications.scheduleNotificationAsync({
+          identifier: plan.identifier,
+          content: {
+            title: plan.title,
+            body: plan.body,
+            data: { sourceExpenseId: plan.sourceExpenseId },
+          },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.DATE,
+            date: new Date(plan.triggerAt),
+          },
+        }),
+      ),
+    )
+    setScheduledReminders(plans)
+    setNotificationStatus(`${plans.length} reminders scheduled`)
+  }
+
+  const cancelReminderForExpense = async (sourceExpenseId) => {
+    const remaining = scheduledReminders.filter((plan) => plan.sourceExpenseId !== sourceExpenseId)
+    const removed = scheduledReminders.filter((plan) => plan.sourceExpenseId === sourceExpenseId)
+    if (Platform.OS === 'web') {
+      localStorage.setItem('splitclub.webReminders.v1', JSON.stringify(remaining))
+    } else {
+      await Promise.all(removed.map((plan) => Notifications.cancelScheduledNotificationAsync(plan.identifier)))
+    }
+    setScheduledReminders(remaining)
+  }
+
   const cancelRecurring = (sourceExpenseId) => {
     setCanceledRecurringIds((ids) => [...new Set([...ids, sourceExpenseId])])
+    cancelReminderForExpense(sourceExpenseId).catch(() => undefined)
     setSyncState('Recurring bill canceled')
   }
 
@@ -506,6 +580,10 @@ function SplitClubApp() {
     removeMember,
     privateBalances,
     setPrivateBalances,
+    notificationStatus,
+    scheduledReminders,
+    requestReminderPermission,
+    scheduleRecurringReminders,
     upcomingRecurring,
     cancelRecurring,
     syncState,
@@ -1094,6 +1172,23 @@ function SettingsScreen({ state }) {
 
       <Panel title="Recurring bills">
         <YStack gap="$2">
+          <YStack bg="#f4f4f5" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3" gap="$2">
+            <XStack ai="center" jc="space-between" gap="$3">
+              <YStack flex={1}>
+                <Text color="#09090b" fontSize={14} fontWeight="900">
+                  Reminder notifications
+                </Text>
+                <Muted>
+                  {state.notificationStatus} · {state.scheduledReminders.length} scheduled
+                </Muted>
+              </YStack>
+              <Bell size={18} color="#09090b" />
+            </XStack>
+            <XStack gap="$2" fw="wrap">
+              <SecondaryButton icon={<Bell size={16} color="#09090b" />} label="Enable" onPress={state.requestReminderPermission} />
+              <SecondaryButton icon={<RefreshCcw size={16} color="#09090b" />} label="Schedule" onPress={state.scheduleRecurringReminders} />
+            </XStack>
+          </YStack>
           {state.upcomingRecurring.map((expense) => (
             <XStack key={expense.sourceExpenseId} ai="center" gap="$2" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
               <YStack flex={1}>
