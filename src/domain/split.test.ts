@@ -319,6 +319,9 @@ describe('split engine', () => {
     expect(summary).toMatchObject({
       expensesAdded: 1,
       localExpensesPreserved: 5,
+      memberConflicts: 0,
+      groupConflicts: 0,
+      expenseConflicts: 1,
     })
   })
 })
