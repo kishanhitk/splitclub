@@ -158,6 +158,8 @@ function SplitClubApp() {
     { id: 'item-1', label: 'Cab fare', amount: 2400, assignedTo: ['kishan', 'anya', 'dev', 'mia'] },
     { id: 'item-2', label: 'Toll', amount: 1200, assignedTo: ['kishan', 'anya', 'dev', 'mia'] },
   ])
+  const [cloudReceipts, setCloudReceipts] = useState([])
+  const [receiptLibraryStatus, setReceiptLibraryStatus] = useState('Not loaded')
   const [activeUserId, setActiveUserId] = useState('kishan')
   const [friendName, setFriendName] = useState('Rhea')
   const [friendEmail, setFriendEmail] = useState('rhea@example.com')
@@ -881,7 +883,41 @@ function SplitClubApp() {
     const body = await response.json()
     setReceiptItems(body.extractedItems ?? [])
     setAttachmentName(body.receipt?.fileName ?? receiptFile.name ?? 'receipt')
+    if (body.receipt) {
+      setCloudReceipts((receipts) => [body.receipt, ...receipts.filter((receipt) => receipt.id !== body.receipt.id)])
+      setReceiptLibraryStatus('Receipt saved to cloud library')
+    }
     setSyncState('Receipt uploaded')
+  }
+
+  const loadCloudReceipts = async () => {
+    if (!cloudSyncReady) {
+      setReceiptLibraryStatus('Sign in and configure cloud sync to load receipts')
+      Alert.alert('Cloud receipts unavailable', 'Sign in and set EXPO_PUBLIC_SPLITCLUB_API_URL to load receipt history.')
+      return
+    }
+    try {
+      const response = await fetch(`${cloudApiUrl}/api/receipts`, {
+        headers: sessionHeaders(authSession),
+      })
+      if (!response.ok) {
+        throw new Error(`Worker returned ${response.status}`)
+      }
+      const body = await response.json()
+      setCloudReceipts(body.receipts ?? [])
+      setReceiptLibraryStatus(`${body.receipts?.length ?? 0} cloud receipts loaded`)
+    } catch (error) {
+      setReceiptLibraryStatus(error instanceof Error ? error.message : 'Receipt library failed to load')
+    }
+  }
+
+  const applyCloudReceipt = (receiptId) => {
+    const receipt = cloudReceipts.find((candidate) => candidate.id === receiptId)
+    if (!receipt) return
+    setAttachmentName(receipt.fileName ?? 'receipt')
+    setReceiptItems(receipt.extractedItems ?? [])
+    if (receipt.ocrText) setReceiptOcrText(receipt.ocrText)
+    setSyncState('Receipt items applied')
   }
 
   const removeReceiptItem = (itemId) => {
@@ -1390,11 +1426,15 @@ function SplitClubApp() {
     itemAmount,
     setItemAmount,
     receiptItems,
+    cloudReceipts,
+    receiptLibraryStatus,
     itemizedTotal,
     itemizedSplits,
     addReceiptItem,
     toggleReceiptItemAssignment,
     applyItemizedSplit,
+    loadCloudReceipts,
+    applyCloudReceipt,
     removeReceiptItem,
     friendName,
     setFriendName,
@@ -2274,6 +2314,34 @@ function AddExpenseScreen({ state }) {
               <SecondaryButton icon={<Camera size={16} color="#09090b" />} label="Choose" onPress={state.chooseReceipt} />
               <SecondaryButton icon={<ReceiptText size={16} color="#09090b" />} label="Upload OCR" onPress={state.uploadReceipt} />
             </XStack>
+          </YStack>
+          <YStack bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3" gap="$2">
+            <XStack ai="center" jc="space-between" gap="$3">
+              <YStack flex={1}>
+                <Text color="#09090b" fontSize={14} fontWeight="900">
+                  Cloud receipt library
+                </Text>
+                <Muted>{state.receiptLibraryStatus}</Muted>
+              </YStack>
+              <SecondaryButton icon={<RefreshCcw size={16} color="#09090b" />} label="Load" onPress={state.loadCloudReceipts} />
+            </XStack>
+            {state.cloudReceipts.slice(0, 3).map((receipt) => (
+              <XStack key={receipt.id} ai="center" jc="space-between" gap="$3" py="$2" borderTopWidth={1} borderColor="#f4f4f5">
+                <YStack flex={1}>
+                  <Text color="#09090b" fontSize={14} fontWeight="900">
+                    {receipt.fileName}
+                  </Text>
+                  <Muted>
+                    {receipt.ocrStatus} · {receipt.extractedItems?.length ?? 0} items · {new Date(receipt.createdAt).toLocaleDateString()}
+                  </Muted>
+                </YStack>
+                <Button unstyled onPress={() => state.applyCloudReceipt(receipt.id)}>
+                  <SizableText color="#09090b" size="$2" fontWeight="900">
+                    Use
+                  </SizableText>
+                </Button>
+              </XStack>
+            ))}
           </YStack>
           <Field label="OCR text">
             <Input value={state.receiptOcrText} onChangeText={state.setReceiptOcrText} placeholder="Item name 12.34" {...inputProps} />
