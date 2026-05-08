@@ -23,6 +23,7 @@ import {
   calculateFriendBalanceSummaries,
   exportCsv,
   exportJsonBackup,
+  listUpcomingRecurringExpenses,
   roundMoney,
   simplifyDebts,
   validateGroupDefaultSplits,
@@ -37,6 +38,12 @@ export type Bindings = AuthBindings & OcrBindings & {
   RECEIPTS: R2Bucket
   SYNC_QUEUE: Queue
   TEST_STORE?: LedgerStore
+}
+
+export type RecurringSchedulerResult = {
+  asOf: string
+  scanned: number
+  queued: number
 }
 
 type Variables = {
@@ -180,6 +187,32 @@ function memberConflictResponse(c: Context, member: Member) {
       remoteRecord: member,
     },
   }, 409)
+}
+
+export async function runRecurringScheduler(env: Bindings, asOf = new Date().toISOString().slice(0, 10)): Promise<RecurringSchedulerResult> {
+  const ledger = await getStore(env).getLedger()
+  const schedules = listUpcomingRecurringExpenses(ledger)
+  const dueSchedules = schedules.filter((schedule) => (schedule.reminderDate ?? schedule.dueDate) <= asOf)
+
+  await Promise.all(dueSchedules.map((schedule) =>
+    env.SYNC_QUEUE?.send({
+      type: 'recurring.due',
+      notificationId: `recurring:${schedule.sourceExpenseId}:${schedule.dueDate}`,
+      sourceExpenseId: schedule.sourceExpenseId,
+      description: schedule.description,
+      dueDate: schedule.dueDate,
+      reminderDate: schedule.reminderDate,
+      amount: schedule.amount,
+      currency: schedule.currency,
+      createdAt: new Date().toISOString(),
+    }),
+  ))
+
+  return {
+    asOf,
+    scanned: schedules.length,
+    queued: dueSchedules.length,
+  }
 }
 
 export function createApp() {
