@@ -15,9 +15,10 @@ import {
 import type { Ledger, Member } from '../src/domain/split'
 import { calculateBalances, simplifyDebts } from '../src/domain/split'
 import { AuthError, authenticateRequest, type AuthBindings } from './auth'
+import { extractReceiptItems, type OcrBindings } from './ocr'
 import { createD1LedgerStore, type LedgerStore } from './store'
 
-export type Bindings = AuthBindings & {
+export type Bindings = AuthBindings & OcrBindings & {
   DB: D1Database
   RECEIPTS: R2Bucket
   SYNC_QUEUE: Queue
@@ -62,6 +63,13 @@ async function requireGroupAccess(store: LedgerStore, userId: string, groupId: s
     throw new AuthError('Group is not visible to this user', 403)
   }
   return group
+}
+
+async function requireExpenseAccess(store: LedgerStore, userId: string, expenseId: string) {
+  const ledger = scopeLedger(await store.getLedger(), userId)
+  const expense = ledger.expenses.find((candidate) => candidate.id === expenseId)
+  if (!expense) throw new AuthError('Expense is not visible to this user', 403)
+  return expense
 }
 
 export function createApp() {
@@ -227,6 +235,61 @@ export function createApp() {
     return c.json({ settlement }, 201)
   })
 
+  app.get('/api/receipts', async (c) => {
+    const store = getStore(c.env)
+    const member = currentMember(c.get('authMember'))
+    return c.json({ receipts: await store.listReceipts(member.id) })
+  })
+
+  app.post('/api/receipts', async (c) => {
+    const store = getStore(c.env)
+    const member = currentMember(c.get('authMember'))
+    const form = await c.req.formData()
+    const file = form.get('file')
+    if (!(file instanceof File)) {
+      return c.json({ error: 'validation_error', message: 'Receipt file is required' }, 400)
+    }
+    const expenseId = textField(form.get('expenseId'))
+    if (expenseId) await requireExpenseAccess(store, member.id, expenseId)
+
+    const receiptId = `receipt_${crypto.randomUUID()}`
+    const fileName = file.name || 'receipt'
+    const contentType = file.type || 'application/octet-stream'
+    const bytes = await file.arrayBuffer()
+    const objectKey = `receipts/${member.id}/${receiptId}-${safeObjectName(fileName)}`
+    await c.env.RECEIPTS.put(objectKey, bytes, {
+      httpMetadata: { contentType },
+      customMetadata: {
+        receiptId,
+        ownerId: member.id,
+        expenseId: expenseId ?? '',
+      },
+    })
+
+    const assignedTo = form.getAll('assignedTo').map(textField).filter((value): value is string => Boolean(value))
+    const extraction = await extractReceiptItems({
+      fileBytes: bytes,
+      contentType,
+      ocrText: textField(form.get('ocrText')),
+      assignedTo: assignedTo.length ? assignedTo : [member.id],
+      env: c.env,
+    })
+    const receipt = await store.createReceipt({
+      id: receiptId,
+      expenseId,
+      ownerId: member.id,
+      objectKey,
+      fileName,
+      contentType,
+      sizeBytes: file.size,
+      ocrStatus: extraction.status,
+      ocrText: extraction.text,
+      extractedItems: extraction.items,
+    })
+    await c.env.SYNC_QUEUE?.send({ type: 'receipt.uploaded', receiptId, expenseId, createdAt: new Date().toISOString() })
+    return c.json({ receipt, extractedItems: extraction.items }, 201)
+  })
+
   app.get('/api/search', async (c) => {
     const query = searchSchema.parse({
       q: c.req.query('q') ?? '',
@@ -276,4 +339,12 @@ export function createApp() {
   })
 
   return app
+}
+
+function textField(value: FormDataEntryValue | null) {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+function safeObjectName(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'receipt'
 }

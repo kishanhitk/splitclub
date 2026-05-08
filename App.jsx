@@ -1,5 +1,6 @@
 import { StatusBar } from 'expo-status-bar'
 import * as AuthSession from 'expo-auth-session'
+import * as DocumentPicker from 'expo-document-picker'
 import * as Notifications from 'expo-notifications'
 import * as WebBrowser from 'expo-web-browser'
 import { useEffect, useMemo, useState } from 'react'
@@ -40,10 +41,11 @@ import {
   spendingByCategory,
   spendingTrend,
 } from './src/domain/split'
+import { parseReceiptText } from './src/domain/receipts'
 import { buildReminderNotifications } from './src/notifications/reminders'
 import { getAuthProviderConfig, hasRemoteAuthConfig } from './src/auth/provider'
 import { loadLedger, resetLedger, saveLedger } from './src/storage/offline'
-import { clearSession, createLocalSession, isSessionExpired, loadSession, refreshLocalSession, saveSession } from './src/storage/session'
+import { clearSession, createLocalSession, isSessionExpired, loadSession, refreshLocalSession, saveSession, sessionHeaders } from './src/storage/session'
 import { tamaguiConfig } from './tamagui.config'
 
 WebBrowser.maybeCompleteAuthSession()
@@ -105,6 +107,8 @@ function SplitClubApp() {
   const [reminderDays, setReminderDays] = useState('3')
   const [paidBy, setPaidBy] = useState('kishan')
   const [attachmentName, setAttachmentName] = useState('receipt.jpg')
+  const [receiptFile, setReceiptFile] = useState(null)
+  const [receiptOcrText, setReceiptOcrText] = useState('Cab fare 2400\nToll 1200')
   const [itemLabel, setItemLabel] = useState('Ticket')
   const [itemAmount, setItemAmount] = useState('900')
   const [receiptItems, setReceiptItems] = useState([
@@ -367,6 +371,68 @@ function SplitClubApp() {
     setItemAmount('')
   }
 
+  const chooseReceipt = async () => {
+    const result = await DocumentPicker.getDocumentAsync({
+      type: ['image/*', 'application/pdf'],
+      copyToCacheDirectory: true,
+      multiple: false,
+    })
+    if (result.canceled || !result.assets?.[0]) return
+    const asset = result.assets[0]
+    setReceiptFile(asset)
+    setAttachmentName(asset.name ?? 'receipt')
+    setSyncState('Receipt selected')
+  }
+
+  const extractReceiptPreview = () => {
+    const participants = membersForGroup.map((member) => member.id)
+    const extracted = parseReceiptText(receiptOcrText, participants)
+    if (!extracted.length) {
+      Alert.alert('No line items found', 'Add OCR text with one item and amount per line.')
+      return
+    }
+    setReceiptItems(extracted)
+    setSyncState('OCR items ready for review')
+  }
+
+  const uploadReceipt = async () => {
+    const apiUrl = process.env.EXPO_PUBLIC_SPLITCLUB_API_URL
+    if (!receiptFile) {
+      Alert.alert('Choose a receipt', 'Select an image or PDF before uploading.')
+      return
+    }
+    if (!apiUrl || !authSession) {
+      extractReceiptPreview()
+      setSyncState('Receipt reviewed locally')
+      return
+    }
+    const form = new FormData()
+    if (receiptFile.file) {
+      form.append('file', receiptFile.file)
+    } else {
+      form.append('file', {
+        uri: receiptFile.uri,
+        name: receiptFile.name ?? 'receipt',
+        type: receiptFile.mimeType ?? 'application/octet-stream',
+      })
+    }
+    form.append('ocrText', receiptOcrText)
+    membersForGroup.forEach((member) => form.append('assignedTo', member.id))
+    const response = await fetch(`${apiUrl.replace(/\/$/, '')}/api/receipts`, {
+      method: 'POST',
+      headers: sessionHeaders(authSession),
+      body: form,
+    })
+    if (!response.ok) {
+      Alert.alert('Upload failed', `Receipt upload returned ${response.status}.`)
+      return
+    }
+    const body = await response.json()
+    setReceiptItems(body.extractedItems ?? [])
+    setAttachmentName(body.receipt?.fileName ?? receiptFile.name ?? 'receipt')
+    setSyncState('Receipt uploaded')
+  }
+
   const removeReceiptItem = (itemId) => {
     setReceiptItems((items) => items.filter((item) => item.id !== itemId))
   }
@@ -574,6 +640,12 @@ function SplitClubApp() {
     setPaidBy,
     attachmentName,
     setAttachmentName,
+    receiptFile,
+    receiptOcrText,
+    setReceiptOcrText,
+    chooseReceipt,
+    extractReceiptPreview,
+    uploadReceipt,
     itemLabel,
     setItemLabel,
     itemAmount,
@@ -976,6 +1048,25 @@ function AddExpenseScreen({ state }) {
           <Field label="Attachment">
             <Input value={state.attachmentName} onChangeText={state.setAttachmentName} placeholder="receipt.jpg" {...inputProps} />
           </Field>
+          <YStack bg="#f4f4f5" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3" gap="$2">
+            <XStack ai="center" jc="space-between" gap="$3">
+              <YStack flex={1}>
+                <Text color="#09090b" fontSize={14} fontWeight="900">
+                  {state.receiptFile?.name ?? 'No receipt selected'}
+                </Text>
+                <Muted>{state.receiptFile ? `${state.receiptFile.mimeType ?? 'file'} · ${state.receiptFile.size ?? 0} bytes` : 'Images and PDFs work on Android and web.'}</Muted>
+              </YStack>
+              <Camera size={18} color="#09090b" />
+            </XStack>
+            <XStack gap="$2" fw="wrap">
+              <SecondaryButton icon={<Camera size={16} color="#09090b" />} label="Choose" onPress={state.chooseReceipt} />
+              <SecondaryButton icon={<ReceiptText size={16} color="#09090b" />} label="Upload OCR" onPress={state.uploadReceipt} />
+            </XStack>
+          </YStack>
+          <Field label="OCR text">
+            <Input value={state.receiptOcrText} onChangeText={state.setReceiptOcrText} placeholder="Item name 12.34" {...inputProps} />
+          </Field>
+          <SecondaryButton icon={<ListFilter size={16} color="#09090b" />} label="Extract for review" onPress={state.extractReceiptPreview} />
           <XStack gap="$2" fw="wrap">
             <YStack flex={1} minWidth={180} gap="$2">
               <Label>Item</Label>
