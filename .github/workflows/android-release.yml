@@ -76,7 +76,11 @@ jobs:
         working-directory: android
         run: ./gradlew assembleRelease --no-daemon --stacktrace
 
-      - name: Sign Android release APK
+      - name: Build Android release App Bundle
+        working-directory: android
+        run: ./gradlew bundleRelease --no-daemon --stacktrace
+
+      - name: Sign Android release APK and App Bundle
         env:
           ANDROID_RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
           ANDROID_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
@@ -91,6 +95,11 @@ jobs:
             echo "::error::Release APK was not produced"
             exit 1
           fi
+          unsigned_aab="$(find android/app/build/outputs/bundle/release -name '*release*.aab' | head -n 1)"
+          if [ -z "$unsigned_aab" ]; then
+            echo "::error::Release App Bundle was not produced"
+            exit 1
+          fi
           build_tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
           "$build_tools/zipalign" -f -p 4 "$unsigned_apk" dist/splitclub-release-aligned.apk
           "$build_tools/apksigner" sign \
@@ -101,7 +110,16 @@ jobs:
             --out dist/splitclub-release.apk \
             dist/splitclub-release-aligned.apk
           "$build_tools/apksigner" verify --print-certs dist/splitclub-release.apk
+          jarsigner \
+            -keystore android/app/release-signing/splitclub-release.jks \
+            -storepass "$ANDROID_RELEASE_KEYSTORE_PASSWORD" \
+            -keypass "$ANDROID_RELEASE_KEY_PASSWORD" \
+            -signedjar dist/splitclub-release.aab \
+            "$unsigned_aab" \
+            "$ANDROID_RELEASE_KEY_ALIAS"
+          jarsigner -verify -certs dist/splitclub-release.aab
           shasum -a 256 dist/splitclub-release.apk > dist/splitclub-release.apk.sha256
+          shasum -a 256 dist/splitclub-release.aab > dist/splitclub-release.aab.sha256
 
       - name: Upload signed Android APK
         uses: actions/upload-artifact@v7.0.1
@@ -110,6 +128,17 @@ jobs:
           path: |
             dist/splitclub-release.apk
             dist/splitclub-release.apk.sha256
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+      - name: Upload signed Android App Bundle
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: splitclub-android-signed-aab
+          path: |
+            dist/splitclub-release.aab
+            dist/splitclub-release.aab.sha256
           if-no-files-found: error
           retention-days: 30
           compression-level: 0
