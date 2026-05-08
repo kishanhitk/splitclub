@@ -268,6 +268,20 @@ describe('SplitClub Worker API', () => {
     expect(restoreResponse.status).toBe(200)
     expect(restoreBody.expense.deletedAt).toBeUndefined()
     expect(restoreBody.expense.history.map((event) => event.action)).toContain('restored')
+
+    const notificationsResponse = await request('/api/notifications?limit=10', {}, env)
+    const notificationsBody = (await notificationsResponse.json()) as {
+      notifications: Array<{ type: string; title: string; splitwiseType: number; entityId: string; read: boolean }>
+    }
+    expect(notificationsResponse.status).toBe(200)
+    expect(notificationsBody.notifications.map((notification) => notification.type)).toContain('comment_added')
+    expect(notificationsBody.notifications.map((notification) => notification.type)).toContain('expense_deleted')
+    expect(notificationsBody.notifications.map((notification) => notification.type)).toContain('expense_restored')
+    expect(notificationsBody.notifications.find((notification) => notification.type === 'comment_added')).toMatchObject({
+      splitwiseType: 3,
+      entityId: 'e2',
+      read: false,
+    })
   })
 
   test('exposes sync payload and validation errors', async () => {

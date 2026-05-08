@@ -16,6 +16,7 @@ import {
 } from '../src/contracts/api'
 import type { Ledger, Member } from '../src/domain/split'
 import { calculateBalances, simplifyDebts } from '../src/domain/split'
+import { mapEventToNotification } from '../src/notifications/activity'
 import { AuthError, authenticateRequest, type AuthBindings } from './auth'
 import { extractReceiptItems, type OcrBindings } from './ocr'
 import { createD1LedgerStore, type LedgerStore } from './store'
@@ -73,6 +74,32 @@ async function requireExpenseAccess(store: LedgerStore, userId: string, expenseI
   const expense = ledger.expenses.find((candidate) => candidate.id === expenseId)
   if (!expense) throw new AuthError('Expense is not visible to this user', 403)
   return expense
+}
+
+function scopedAuditEvents(ledger: Ledger, events: Awaited<ReturnType<LedgerStore['listAuditEvents']>>, userId: string) {
+  const visibleGroups = ledger.groups.filter((group) => group.memberIds.includes(userId))
+  const groupIds = new Set(visibleGroups.map((group) => group.id))
+  const visibleExpenses = ledger.expenses.filter((expense) => {
+    if (expense.groupId) return groupIds.has(expense.groupId)
+    return expense.paidBy === userId || expense.participants.includes(userId)
+  })
+  const expenseIds = new Set(visibleExpenses.map((expense) => expense.id))
+  const memberIds = new Set<string>([userId])
+  visibleGroups.forEach((group) => group.memberIds.forEach((memberId) => memberIds.add(memberId)))
+  visibleExpenses.forEach((expense) => {
+    memberIds.add(expense.paidBy)
+    expense.participants.forEach((memberId) => memberIds.add(memberId))
+  })
+  return events.filter((event) => {
+    if (event.entityType === 'expense' || event.entityType === 'settlement') return expenseIds.has(event.entityId)
+    if (event.entityType === 'group' || event.entityType === 'group_invite') return groupIds.has(event.entityId) || groupIds.has(String((event.payload as { groupId?: unknown })?.groupId ?? ''))
+    if (event.entityType === 'membership') {
+      const [groupId, memberId] = event.entityId.split(':')
+      return groupIds.has(groupId) || memberIds.has(memberId)
+    }
+    if (event.entityType === 'friendship' || event.entityType === 'user') return memberIds.has(event.entityId) || event.actorId === userId
+    return event.actorId === userId
+  })
 }
 
 export function createApp() {
@@ -397,6 +424,17 @@ export function createApp() {
       ledger: scopeLedger(await store.getLedger(), member.id),
       auditEvents: await store.listAuditEvents(),
     })
+  })
+
+  app.get('/api/notifications', async (c) => {
+    const store = getStore(c.env)
+    const member = currentMember(c.get('authMember'))
+    const limit = Math.min(Number(c.req.query('limit') ?? 50) || 50, 100)
+    const ledger = await store.getLedger()
+    const notifications = scopedAuditEvents(ledger, await store.listAuditEvents(), member.id)
+      .map((event) => mapEventToNotification(event))
+      .slice(0, limit)
+    return c.json({ notifications })
   })
 
   return app
