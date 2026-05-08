@@ -3,6 +3,7 @@
 import { Hono } from 'hono'
 import { ZodError } from 'zod'
 import {
+  accountUpdateSchema,
   expenseSchema,
   expenseCommentSchema,
   expenseUpdateSchema,
@@ -201,6 +202,14 @@ export function createApp() {
   })
 
   app.get('/api/auth/session', (c) => c.json({ user: currentMember(c.get('authMember')) }))
+
+  app.put('/api/account', async (c) => {
+    const store = getStore(c.env)
+    const member = currentMember(c.get('authMember'))
+    const account = await store.updateMember(member.id, accountUpdateSchema.parse(await c.req.json()), member.id)
+    await c.env.SYNC_QUEUE?.send({ type: 'account.updated', memberId: account.id, createdAt: new Date().toISOString() })
+    return c.json({ user: account })
+  })
 
   app.get('/api/members', async (c) => {
     const store = getStore(c.env)

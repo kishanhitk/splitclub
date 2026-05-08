@@ -1,6 +1,7 @@
 import type { Expense, ExpenseComment, ExpenseHistoryEvent, Group, Ledger, Member } from '../src/domain/split'
 import type { ExtractedReceiptItem } from '../src/domain/receipts'
 import type {
+  AccountUpdateInput,
   AuthUser,
   ExpenseInput,
   ExpenseCommentInput,
@@ -64,6 +65,7 @@ export type LedgerStore = {
   getLedger(): Promise<Ledger>
   listMembers(): Promise<Member[]>
   createMember(input: MemberInput): Promise<Member>
+  updateMember(memberId: string, input: AccountUpdateInput, actorId?: string): Promise<Member>
   listFriends(): Promise<Member[]>
   createFriend(input: FriendInput, ownerId?: string): Promise<Member>
   listGroups(): Promise<Group[]>
@@ -198,6 +200,24 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
       ledger = { ...ledger, members: [member, ...ledger.members] }
       audit('user', member.id, 'created', member)
       return structuredClone(member)
+    },
+    async updateMember(memberId, input, actorId) {
+      const member = ledger.members.find((candidate) => candidate.id === memberId)
+      if (!member) throw new Error('Member not found')
+      const updated: Member = {
+        ...member,
+        name: input.name,
+        email: input.email,
+        phone: input.phone,
+        avatar: input.avatar ?? member.avatar,
+        preferredPayment: input.preferredPayment,
+      }
+      ledger = {
+        ...ledger,
+        members: ledger.members.map((candidate) => (candidate.id === memberId ? updated : candidate)),
+      }
+      audit('user', memberId, 'updated', updated, actorId)
+      return structuredClone(updated)
     },
     async listFriends() {
       return structuredClone(ledger.members)
@@ -765,6 +785,27 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
         .run()
       await audit('user', member.id, 'created', member)
       return member
+    },
+    async updateMember(memberId, input, actorId) {
+      const existing = await db
+        .prepare('SELECT id, name, email, phone, avatar, preferred_payment FROM users WHERE id = ? AND deleted_at IS NULL')
+        .bind(memberId)
+        .first<UserRow>()
+      if (!existing) throw new Error('Member not found')
+      const updated: Member = {
+        id: existing.id,
+        name: input.name,
+        email: input.email,
+        phone: input.phone,
+        avatar: input.avatar ?? existing.avatar,
+        preferredPayment: input.preferredPayment,
+      }
+      await db
+        .prepare('UPDATE users SET name = ?, email = ?, phone = ?, avatar = ?, preferred_payment = ? WHERE id = ? AND deleted_at IS NULL')
+        .bind(updated.name, updated.email, updated.phone, updated.avatar, updated.preferredPayment, memberId)
+        .run()
+      await audit('user', memberId, 'updated', updated, actorId)
+      return updated
     },
     async listFriends() {
       return this.listMembers()

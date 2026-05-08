@@ -9,6 +9,7 @@ export const paymentStatusSchema = z.enum(['recorded', 'pending', 'confirmed'])
 export const authUserSchema = z.object({
   id: z.string().min(1),
   email: z.string().email().optional(),
+  phone: z.string().min(3).optional(),
   name: z.string().min(1).optional(),
   avatar: z.string().min(1).optional(),
   provider: z.string().min(1).default('oidc'),
@@ -27,6 +28,11 @@ export const memberSchema = z.object({
   email: z.string().email().optional(),
   phone: z.string().min(3).optional(),
   avatar: z.string().min(1).optional(),
+  preferredPayment: z.enum(['cash', 'upi', 'venmo', 'paypal', 'bank']).default('cash'),
+})
+
+export const accountUpdateSchema = memberSchema.omit({ id: true }).partial().extend({
+  name: z.string().min(1),
   preferredPayment: z.enum(['cash', 'upi', 'venmo', 'paypal', 'bank']).default('cash'),
 })
 
@@ -155,6 +161,7 @@ export const searchSchema = z.object({
 })
 
 export type MemberInput = z.infer<typeof memberSchema>
+export type AccountUpdateInput = z.infer<typeof accountUpdateSchema>
 export type GroupInput = z.infer<typeof groupSchema>
 export type GroupDefaultsInput = z.infer<typeof groupDefaultsSchema>
 export type FriendInput = z.infer<typeof friendSchema>
