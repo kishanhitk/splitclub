@@ -593,6 +593,24 @@ export function createApp() {
     return c.json({ receipt, extractedItems: extraction.items }, 201)
   })
 
+  app.get('/api/receipts/:id/file', async (c) => {
+    const store = getStore(c.env)
+    const member = currentMember(c.get('authMember'))
+    const receipt = await store.getReceipt(c.req.param('id'), member.id)
+    if (!receipt) return c.json({ error: 'receipt_not_found', message: 'Receipt is not visible to this user.' }, 404)
+    const object = await c.env.RECEIPTS.get(receipt.objectKey)
+    if (!object) return c.json({ error: 'receipt_file_missing', message: 'Receipt file is missing from storage.' }, 404)
+    const fileName = receipt.fileName.replaceAll('"', '')
+    return new Response(await object.arrayBuffer(), {
+      headers: {
+        'content-type': receipt.contentType,
+        'content-length': String(receipt.sizeBytes),
+        'content-disposition': `inline; filename="${fileName}"`,
+        'cache-control': 'private, max-age=60',
+      },
+    })
+  })
+
   app.post('/api/receipts/:id/retry', async (c) => {
     const store = getStore(c.env)
     const member = currentMember(c.get('authMember'))

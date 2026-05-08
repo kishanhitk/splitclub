@@ -517,7 +517,7 @@ describe('SplitClub Worker API', () => {
 
     const response = await request('/api/receipts', { method: 'POST', body: form }, env)
     const body = (await response.json()) as {
-      receipt: { objectKey: string; ocrStatus: string; reviewHistory: Array<{ action: string; source: string; itemCount: number }> }
+      receipt: { id: string; objectKey: string; ocrStatus: string; reviewHistory: Array<{ action: string; source: string; itemCount: number }> }
       extractedItems: Array<{ id?: string; label: string; amount: number; assignedTo: string[] }>
     }
 
@@ -530,6 +530,20 @@ describe('SplitClub Worker API', () => {
       { id: 'ocr-2', label: 'Lime soda', amount: 160, assignedTo: ['kishan', 'anya'] },
     ])
     expect(receiptObjects.at(-1)?.contentType).toBe('image/jpeg')
+
+    const fileResponse = await request(`/api/receipts/${body.receipt.id}/file`, {}, env)
+    expect(fileResponse.status).toBe(200)
+    expect(fileResponse.headers.get('content-type')).toBe('image/jpeg')
+    expect(fileResponse.headers.get('content-disposition')).toContain('filename="dinner.jpg"')
+    expect(await fileResponse.text()).toBe('retry bytes')
+
+    const outsiderFileResponse = await request(
+      `/api/receipts/${body.receipt.id}/file`,
+      { headers: { Authorization: 'Bearer test-outsider' } },
+      env,
+      false,
+    )
+    expect(outsiderFileResponse.status).toBe(404)
   })
 
   test('retries receipt OCR and replaces extracted line items', async () => {
