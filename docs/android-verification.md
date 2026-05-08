@@ -49,18 +49,33 @@ bun run android:run
 
 Use `bun run android:dev` only when intentionally starting an Expo development server for an attached Android target. Use `bun run android:run` for the native development build workflow.
 
+## CI Verification
+
+`.github/workflows/ci.yml` verifies pull requests and `main` pushes with:
+
+- Web/domain checks: Bun install, Expo dependency alignment, TypeScript, Bun tests, and Expo web export.
+- Android debug build: Node 24, Bun latest, Temurin Java 21, Android SDK setup, Expo dependency alignment, Expo Android prebuild with `--no-install`, and `./gradlew assembleDebug`.
+
+Action releases verified on May 8, 2026:
+
+- `actions/checkout@v6.0.2`
+- `actions/setup-node@v6.4.0`
+- `oven-sh/setup-bun@v2.2.0`
+- `actions/setup-java@v5.2.0`
+- `android-actions/setup-android@v4.0.1`
+
 ## Current Local Result
 
 The Expo project health check passes with `18/18 checks passed`.
 
-Native Android execution is currently blocked on this workstation because the required Android and Java tooling is not installed:
+Native Android execution is currently blocked on this workstation because Java is not installed:
 
-- `adb` is missing.
 - `emulator` is missing.
-- `sdkmanager` is missing.
 - `java` and `javac` cannot find a Java Runtime.
-- `ANDROID_HOME` points at `/Users/kishan/Library/Android/sdk`, but that SDK path does not exist.
+- `sdkmanager` is present but cannot run without Java.
+- `adb` is installed at `/opt/homebrew/bin/adb`.
+- `ANDROID_HOME` points at `/Users/kishan/Library/Android/sdk`, and the SDK path exists.
 
-`bun run android:run` currently exits with `Error: spawn adb ENOENT` after failing to resolve the Android SDK path.
+`bun run android:run` and local Gradle builds should be retried after installing a Java runtime and exposing the Android emulator binary on `PATH`.
 
-Once those tools are installed, rerun the verification commands above and capture the device or emulator smoke result for `KIS-58`.
+Once those tools are installed, rerun the verification commands above and capture the device or emulator smoke result.
