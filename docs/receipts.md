@@ -10,6 +10,7 @@ SplitClub receipt handling uses Expo DocumentPicker on Android/web and Cloudflar
   - `expenseId`: optional linked expense id.
   - `ocrText`: optional OCR text override for deterministic extraction and tests.
   - `assignedTo`: repeated member ids for extracted line item assignment.
+- `POST /api/receipts/:id/retry` reruns extraction for an owned receipt with an optional JSON `ocrText` override and `assignedTo` member list.
 
 Uploaded files are stored under `receipts/{ownerId}/{receiptId}-{fileName}` in R2. Metadata and extracted items are stored by `migrations/0004_receipts.sql`.
 
@@ -27,8 +28,10 @@ OCR_MODEL = "@cf/google/gemma-3-12b-it"
 
 The model prompt asks for JSON line items. If AI is not configured or the file is not an image, the receipt is stored with `ocrStatus: "pending"` so extraction can be retried later.
 
+Retrying OCR replaces the stored extracted item list for that receipt and records a receipt retry audit event. If `ocrText` is supplied, retry uses that reviewed text directly; otherwise the Worker reads the original object from R2 and attempts extraction again.
+
 ## App Review Flow
 
 The Add screen lets users choose a receipt, run extraction, review the extracted line items, adjust assignments/amounts through the existing itemization controls, and then save the expense.
 
-When cloud sync is configured, the receipt step can also load `GET /api/receipts`, show the latest uploaded receipts, and apply a prior receipt's file name and extracted items to the current expense draft. If cloud sync is unavailable, local OCR text extraction remains available.
+When cloud sync is configured, the receipt step can also load `GET /api/receipts`, show the latest uploaded receipts, retry OCR from the reviewed OCR text, and apply a prior receipt's file name and extracted items to the current expense draft. If cloud sync is unavailable, local OCR text extraction remains available.
