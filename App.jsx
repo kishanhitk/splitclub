@@ -83,6 +83,11 @@ const groupRoles = ['owner', 'admin', 'member', 'viewer']
 const recurrenceOptions = ['none', 'weekly', 'monthly', 'yearly']
 const paymentMethods = ['cash', 'upi', 'venmo', 'paypal', 'bank']
 const paymentStatuses = ['recorded', 'pending', 'confirmed']
+const groupViews = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'friends', label: 'Friends' },
+  { id: 'invites', label: 'Invites' },
+]
 
 const navItems = [
   { id: 'activity', label: 'Activity', icon: ReceiptText },
@@ -150,6 +155,7 @@ function SplitClubApp() {
   const [inviteRole, setInviteRole] = useState('member')
   const [pendingInvites, setPendingInvites] = useState([])
   const [groupSettingsOpen, setGroupSettingsOpen] = useState(false)
+  const [groupView, setGroupView] = useState('overview')
   const [groupDefaultMode, setGroupDefaultMode] = useState('equal')
   const [groupDefaultValues, setGroupDefaultValues] = useState({})
   const [groupSimplifyDebts, setGroupSimplifyDebts] = useState(true)
@@ -1107,6 +1113,8 @@ function SplitClubApp() {
     selectedRole,
     selectedGroup,
     groupSettingsOpen,
+    groupView,
+    setGroupView,
     openGroupSettings,
     closeGroupSettings,
     groupDefaultMode,
@@ -1590,14 +1598,22 @@ function GroupsScreen({ state }) {
         </YStack>
       </Panel>
 
-      {state.selectedGroup ? (
-        <Panel title="Group lifecycle">
+      <Panel title="Workspace">
+        <XStack gap="$1.5" fw="wrap">
+          {groupViews.map((view) => (
+            <Chip key={view.id} label={view.label} active={state.groupView === view.id} onPress={() => state.setGroupView(view.id)} />
+          ))}
+        </XStack>
+      </Panel>
+
+      {state.groupView === 'overview' && state.selectedGroup ? (
+        <Panel title="Overview">
           <YStack gap="$3">
             <FeatureList rows={[
-              ['Default split', `${state.selectedGroup.defaultSplitMode} for new expenses in this group.`],
+              ['Group', `${state.selectedGroup.name} · ${state.selectedGroup.memberIds.length} members`],
+              ['Default split', `${state.selectedGroup.defaultSplitMode} for new expenses.`],
               ['Settle-up mode', state.selectedGroup.simplifyDebts ? 'Simplified debts are on.' : 'Direct pairwise debts are on.'],
-              ['Delete group', 'Deletes this group for everyone and hides it from normal group lists.'],
-              ['Restore path', 'Deleted groups can be restored from More, similar to recent activity recovery.'],
+              ['Restore path', 'Deleted groups are restored from More > Tools.'],
             ]} />
             <XStack gap="$2" fw="wrap">
               <SecondaryButton icon={<Settings size={16} color="#09090b" />} label="Settings" onPress={state.openGroupSettings} />
@@ -1607,103 +1623,131 @@ function GroupsScreen({ state }) {
         </Panel>
       ) : null}
 
-      <Panel title="Friends">
-        <XStack fw="wrap" gap="$2">
-          {state.membersForGroup.map((member) => (
-            <YStack key={member.id} width="48.5%" minWidth={150} bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
-              <XStack ai="center" gap="$2">
-                <YStack ai="center" jc="center" h={34} w={34} br={999} bg="#f4f4f5">
-                  <SizableText color="#09090b" size="$2" fontWeight="900">
-                    {member.avatar}
-                  </SizableText>
-                </YStack>
-                <YStack flex={1}>
-                  <Text color="#09090b" fontSize={15} fontWeight="900">
-                    {member.name}
-                  </Text>
-                  <Muted>{member.preferredPayment}</Muted>
-                </YStack>
-              </XStack>
-            </YStack>
-          ))}
-        </XStack>
-      </Panel>
+      {state.groupView === 'overview' && !state.selectedGroup ? (
+        <Panel title="Overview">
+          <FeatureList rows={[
+            ['Scope', 'Non-group expenses'],
+            ['Visibility', 'Only involved people see private expense details.'],
+            ['Members shown', `${state.membersForGroup.length} people available for one-off bills.`],
+          ]} />
+        </Panel>
+      ) : null}
 
-      <Panel title="Add friend">
-        <YStack gap="$3">
-          <Field label="Name">
-            <Input value={state.friendName} onChangeText={state.setFriendName} placeholder="Friend name" {...inputProps} />
-          </Field>
-          <Field label="Email or phone">
-            <Input value={state.friendEmail} onChangeText={state.setFriendEmail} placeholder="friend@example.com" {...inputProps} />
-          </Field>
-          <SecondaryButton icon={<Users size={16} color="#09090b" />} label="Save friend" onPress={state.addFriend} />
-        </YStack>
-      </Panel>
-
-      <Panel title="Invites and permissions">
-        <YStack gap="$3">
-          <Field label="Invite email">
-            <Input value={state.inviteEmail} onChangeText={state.setInviteEmail} placeholder="name@example.com" {...inputProps} />
-          </Field>
-          <Field label="Invite role">
-            <XStack gap="$1.5" fw="wrap">
-              {groupRoles.map((role) => (
-                <Chip key={role} label={role} active={state.inviteRole === role} onPress={() => state.setInviteRole(role)} />
+      {state.groupView === 'friends' ? (
+        <>
+          <Panel title="Friends">
+            <XStack fw="wrap" gap="$2">
+              {state.membersForGroup.map((member) => (
+                <YStack key={member.id} width="48.5%" minWidth={150} bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
+                  <XStack ai="center" gap="$2">
+                    <YStack ai="center" jc="center" h={34} w={34} br={999} bg="#f4f4f5">
+                      <SizableText color="#09090b" size="$2" fontWeight="900">
+                        {member.avatar}
+                      </SizableText>
+                    </YStack>
+                    <YStack flex={1}>
+                      <Text color="#09090b" fontSize={15} fontWeight="900">
+                        {member.name}
+                      </Text>
+                      <Muted>{member.preferredPayment}</Muted>
+                    </YStack>
+                  </XStack>
+                </YStack>
               ))}
             </XStack>
-          </Field>
-          <PrimaryButton icon={<Plus size={17} color="#ffffff" />} label="Create invite" onPress={state.createInvite} />
-          {state.pendingInvites.map((invite) => (
-            <XStack key={invite.id} ai="center" jc="space-between" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
-              <YStack>
-                <Text color="#09090b" fontSize={14} fontWeight="900">
-                  {invite.invitedEmail}
-                </Text>
-                <Muted>
-                  {invite.role} · {invite.status} · {invite.token}
-                </Muted>
-              </YStack>
-            </XStack>
-          ))}
-        </YStack>
-      </Panel>
+          </Panel>
 
-      <Panel title="Member roles">
-        <YStack gap="$2">
-          {state.membersForGroup.map((member) => (
-            <YStack key={member.id} bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3" gap="$2">
-              <XStack jc="space-between" ai="center">
-                <YStack flex={1}>
-                  <Text color="#09090b" fontSize={15} fontWeight="900">
-                    {member.name}
-                  </Text>
-                  <Muted>
-                    {Math.abs(state.balances.find((balance) => balance.memberId === member.id)?.amount ?? 0) >= 0.01
-                      ? 'Settle before removing'
-                      : 'No group balance'}
-                  </Muted>
-                </YStack>
-                <Button unstyled onPress={() => state.removeMember(member.id)}>
-                  <SizableText color="#71717a" size="$2" fontWeight="900">
-                    Remove
-                  </SizableText>
-                </Button>
-              </XStack>
-              <XStack gap="$1.5" fw="wrap">
-                {groupRoles.map((role) => (
-                  <Chip
-                    key={role}
-                    label={role}
-                    active={(state.membershipRoles[state.selectedGroupId]?.[member.id] ?? 'member') === role}
-                    onPress={() => state.setMemberRole(member.id, role)}
-                  />
-                ))}
-              </XStack>
+          <Panel title="Add friend">
+            <YStack gap="$3">
+              <Field label="Name">
+                <Input value={state.friendName} onChangeText={state.setFriendName} placeholder="Friend name" {...inputProps} />
+              </Field>
+              <Field label="Email or phone">
+                <Input value={state.friendEmail} onChangeText={state.setFriendEmail} placeholder="friend@example.com" {...inputProps} />
+              </Field>
+              <SecondaryButton icon={<Users size={16} color="#09090b" />} label="Save friend" onPress={state.addFriend} />
             </YStack>
-          ))}
+          </Panel>
+        </>
+      ) : null}
+
+      {state.groupView === 'invites' && !state.selectedGroup ? (
+        <Panel title="Invites">
+          <FeatureList rows={[
+            ['Scope', 'Select a group to manage invites and roles.'],
+            ['Non-group expenses', 'Private one-off bills do not have group roles.'],
+          ]} />
+        </Panel>
+      ) : null}
+
+      {state.groupView === 'invites' && state.selectedGroup ? (
+        <YStack gap="$3">
+          <Panel title="Invites">
+            <YStack gap="$3">
+              <Field label="Invite email">
+                <Input value={state.inviteEmail} onChangeText={state.setInviteEmail} placeholder="name@example.com" {...inputProps} />
+              </Field>
+              <Field label="Invite role">
+                <XStack gap="$1.5" fw="wrap">
+                  {groupRoles.map((role) => (
+                    <Chip key={role} label={role} active={state.inviteRole === role} onPress={() => state.setInviteRole(role)} />
+                  ))}
+                </XStack>
+              </Field>
+              <PrimaryButton icon={<Plus size={17} color="#ffffff" />} label="Create invite" onPress={state.createInvite} />
+              {state.pendingInvites.map((invite) => (
+                <XStack key={invite.id} ai="center" jc="space-between" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
+                  <YStack>
+                    <Text color="#09090b" fontSize={14} fontWeight="900">
+                      {invite.invitedEmail}
+                    </Text>
+                    <Muted>
+                      {invite.role} · {invite.status} · {invite.token}
+                    </Muted>
+                  </YStack>
+                </XStack>
+              ))}
+              {state.pendingInvites.length === 0 ? <Muted>No pending invites.</Muted> : null}
+            </YStack>
+          </Panel>
+
+          <Panel title="Member roles">
+            <YStack gap="$2">
+              {state.membersForGroup.map((member) => (
+                <YStack key={member.id} bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3" gap="$2">
+                  <XStack jc="space-between" ai="center">
+                    <YStack flex={1}>
+                      <Text color="#09090b" fontSize={15} fontWeight="900">
+                        {member.name}
+                      </Text>
+                      <Muted>
+                        {Math.abs(state.balances.find((balance) => balance.memberId === member.id)?.amount ?? 0) >= 0.01
+                          ? 'Settle before removing'
+                          : 'No group balance'}
+                      </Muted>
+                    </YStack>
+                    <Button unstyled onPress={() => state.removeMember(member.id)}>
+                      <SizableText color="#71717a" size="$2" fontWeight="900">
+                        Remove
+                      </SizableText>
+                    </Button>
+                  </XStack>
+                  <XStack gap="$1.5" fw="wrap">
+                    {groupRoles.map((role) => (
+                      <Chip
+                        key={role}
+                        label={role}
+                        active={(state.membershipRoles[state.selectedGroupId]?.[member.id] ?? 'member') === role}
+                        onPress={() => state.setMemberRole(member.id, role)}
+                      />
+                    ))}
+                  </XStack>
+                </YStack>
+              ))}
+            </YStack>
+          </Panel>
         </YStack>
-      </Panel>
+      ) : null}
     </>
   )
 }
