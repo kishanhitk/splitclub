@@ -13,6 +13,7 @@ import {
   Check,
   ChevronRight,
   CircleDollarSign,
+  Cloud,
   Download,
   Home,
   LogIn,
@@ -189,6 +190,8 @@ function SplitClubApp() {
   const [canceledRecurringIds, setCanceledRecurringIds] = useState([])
   const [notificationStatus, setNotificationStatus] = useState('Not scheduled')
   const [scheduledReminders, setScheduledReminders] = useState([])
+  const [cloudRecurringSchedules, setCloudRecurringSchedules] = useState([])
+  const [recurringCloudStatus, setRecurringCloudStatus] = useState('Cloud schedules not loaded')
   const [settlementMethod, setSettlementMethod] = useState('cash')
   const [settlementReference, setSettlementReference] = useState('')
   const [settlementStatus, setSettlementStatus] = useState('recorded')
@@ -1352,6 +1355,43 @@ function SplitClubApp() {
     setSyncState('Recurring bill canceled')
   }
 
+  const loadCloudRecurringSchedules = async () => {
+    if (!cloudSyncReady) {
+      setRecurringCloudStatus('Sign in and configure cloud sync to load schedules')
+      return
+    }
+    try {
+      const response = await fetch(`${cloudApiUrl}/api/recurring`, {
+        headers: sessionHeaders(authSession),
+      })
+      if (!response.ok) throw new Error(`Worker returned ${response.status}`)
+      const body = await response.json()
+      setCloudRecurringSchedules(body.schedules ?? [])
+      setRecurringCloudStatus(`${body.schedules?.length ?? 0} cloud schedules loaded`)
+    } catch (error) {
+      setRecurringCloudStatus(error instanceof Error ? error.message : 'Recurring schedules failed to load')
+    }
+  }
+
+  const runCloudRecurringAction = async (sourceExpenseId, action) => {
+    if (!cloudSyncReady) {
+      setRecurringCloudStatus('Sign in and configure cloud sync to update schedules')
+      return
+    }
+    try {
+      const response = await fetch(`${cloudApiUrl}/api/recurring/${sourceExpenseId}/${action}`, {
+        method: 'POST',
+        headers: sessionHeaders(authSession),
+      })
+      if (!response.ok) throw new Error(`Worker returned ${response.status}`)
+      await loadCloudRecurringSchedules()
+      setRecurringCloudStatus(action === 'post' ? 'Cloud occurrence posted' : 'Cloud occurrence skipped')
+      setSyncState(action === 'post' ? 'Recurring bill posted in cloud' : 'Recurring bill skipped in cloud')
+    } catch (error) {
+      setRecurringCloudStatus(error instanceof Error ? error.message : 'Recurring action failed')
+    }
+  }
+
   const addSettlement = (from, to, settlementAmount) => {
     const settlement = {
       id: `settlement-${Date.now()}`,
@@ -1672,6 +1712,8 @@ function SplitClubApp() {
     setPrivateBalances,
     notificationStatus,
     scheduledReminders,
+    cloudRecurringSchedules,
+    recurringCloudStatus,
     requestReminderPermission,
     scheduleRecurringReminders,
     settlementMethod,
@@ -1691,6 +1733,8 @@ function SplitClubApp() {
     upcomingRecurring,
     postRecurringOccurrence,
     cancelRecurring,
+    loadCloudRecurringSchedules,
+    runCloudRecurringAction,
     syncState,
     membersForGroup,
     visibleExpenses,
@@ -3362,8 +3406,38 @@ function RecurringBillsScreen({ state }) {
             <XStack gap="$2" fw="wrap">
               <SecondaryButton icon={<Bell size={16} color="#09090b" />} label="Enable" onPress={state.requestReminderPermission} />
               <SecondaryButton icon={<RefreshCcw size={16} color="#09090b" />} label="Schedule" onPress={state.scheduleRecurringReminders} />
+              <SecondaryButton icon={<Cloud size={16} color="#09090b" />} label="Cloud" onPress={state.loadCloudRecurringSchedules} />
             </XStack>
           </YStack>
+          {state.cloudRecurringSchedules.length ? (
+            <YStack gap="$2">
+              <Muted>{state.recurringCloudStatus}</Muted>
+              {state.cloudRecurringSchedules.slice(0, 3).map((schedule) => (
+                <XStack key={schedule.sourceExpenseId} ai="center" jc="space-between" gap="$2" py="$2" borderTopWidth={1} borderColor="#f4f4f5">
+                  <YStack flex={1}>
+                    <Text color="#09090b" fontSize={14} fontWeight="900">
+                      {schedule.description}
+                    </Text>
+                    <Muted>
+                      cloud · due {schedule.dueDate} · {schedule.history?.length ?? 0} events
+                    </Muted>
+                  </YStack>
+                  <XStack gap="$3">
+                    <Button unstyled onPress={() => state.runCloudRecurringAction(schedule.sourceExpenseId, 'post')}>
+                      <SizableText color="#09090b" size="$2" fontWeight="900">
+                        Post
+                      </SizableText>
+                    </Button>
+                    <Button unstyled onPress={() => state.runCloudRecurringAction(schedule.sourceExpenseId, 'skip')}>
+                      <SizableText color="#71717a" size="$2" fontWeight="900">
+                        Skip
+                      </SizableText>
+                    </Button>
+                  </XStack>
+                </XStack>
+              ))}
+            </YStack>
+          ) : <Muted>{state.recurringCloudStatus}</Muted>}
           {state.upcomingRecurring.map((expense) => (
             <XStack key={expense.sourceExpenseId} ai="center" gap="$2" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3">
               <YStack flex={1}>

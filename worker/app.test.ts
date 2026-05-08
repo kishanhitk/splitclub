@@ -228,6 +228,46 @@ describe('SplitClub Worker API', () => {
     })
   })
 
+  test('lists posts and skips recurring schedules with history', async () => {
+    const env = createEnv()
+
+    const schedulesResponse = await request('/api/recurring', {}, env)
+    const schedulesBody = (await schedulesResponse.json()) as {
+      schedules: Array<{ sourceExpenseId: string; dueDate: string; history: unknown[] }>
+    }
+    expect(schedulesResponse.status).toBe(200)
+    expect(schedulesBody.schedules.find((schedule) => schedule.sourceExpenseId === 'e3')).toMatchObject({
+      dueDate: '2026-06-03',
+      history: [],
+    })
+
+    const postResponse = await request('/api/recurring/e3/post', { method: 'POST' }, env)
+    const postBody = (await postResponse.json()) as {
+      occurrence: { id: string; recurrence: string; notes: string }
+      source: { date: string }
+      event: { action: string; dueDate: string; occurrenceExpenseId: string }
+    }
+    expect(postResponse.status).toBe(201)
+    expect(postBody.occurrence.recurrence).toBe('none')
+    expect(postBody.occurrence.notes).toContain('generated-from:e3')
+    expect(postBody.source.date).toBe('2026-06-03')
+    expect(postBody.event).toMatchObject({ action: 'posted', dueDate: '2026-06-03', occurrenceExpenseId: postBody.occurrence.id })
+
+    const skipResponse = await request('/api/recurring/e3/skip', { method: 'POST' }, env)
+    const skipBody = (await skipResponse.json()) as { source: { date: string }; event: { action: string; dueDate: string } }
+    expect(skipResponse.status).toBe(200)
+    expect(skipBody.source.date).toBe('2026-07-03')
+    expect(skipBody.event).toMatchObject({ action: 'skipped', dueDate: '2026-07-03' })
+
+    const updatedResponse = await request('/api/recurring', {}, env)
+    const updatedBody = (await updatedResponse.json()) as {
+      schedules: Array<{ sourceExpenseId: string; dueDate: string; history: Array<{ action: string }> }>
+    }
+    const rent = updatedBody.schedules.find((schedule) => schedule.sourceExpenseId === 'e3')
+    expect(rent?.dueDate).toBe('2026-08-03')
+    expect(rent?.history.map((event) => event.action)).toEqual(['skipped', 'posted'])
+  })
+
   test('creates friends, invites members, and updates permissions', async () => {
     const env = createEnv()
 

@@ -57,12 +57,12 @@ SplitClub should cover the following Splitwise-style capabilities:
 - Expense lifecycle changes now push edits, comments, deletes, and restores to the Worker while remaining non-destructive offline.
 - Receipt uploads can be stored in R2, listed from the cloud receipt library with OCR review history, retried through Worker OCR, attached to saved expenses, and reused in expense creation with extracted line items.
 - GitHub CI verifies web/domain checks and Android debug APK builds for pull requests, then publishes installable debug APK artifacts.
-- Recurring bills can be scheduled for reminders, posted as real expense occurrences, and advanced to their next due date.
+- Recurring bills can be scheduled for reminders, loaded from the Worker, posted or skipped with server-visible history, and advanced to their next due date.
 
 ## Next Tickets
 
 - Production OIDC provider rollout and account linking controls.
 - Production Cloudflare resource provisioning, secret setup, and broad push-side conflict coverage beyond expense/group lifecycle mutations.
 - Receipt download/viewer controls and richer receipt-to-expense review affordances.
-- Recurring rule history, skipped occurrences, and server-side scheduler automation.
+- Background scheduler automation for recurring reminders and due bill notifications.
 - Signed Android preview and release distribution.

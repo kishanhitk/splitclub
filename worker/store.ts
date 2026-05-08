@@ -1,4 +1,4 @@
-import type { Expense, ExpenseComment, ExpenseHistoryEvent, Group, Ledger, Member } from '../src/domain/split'
+import { buildRecurringOccurrence, getNextDueDate, getReminderDate, type Expense, type ExpenseComment, type ExpenseHistoryEvent, type Group, type Ledger, type Member, type UpcomingRecurringExpense } from '../src/domain/split'
 import type { ExtractedReceiptItem } from '../src/domain/receipts'
 import type {
   AccountUpdateInput,
@@ -72,6 +72,20 @@ export type ReceiptReviewEvent = {
   createdAt: string
 }
 
+export type RecurringOccurrenceEvent = {
+  id: string
+  sourceExpenseId: string
+  occurrenceExpenseId?: string
+  actorId?: string
+  action: 'posted' | 'skipped'
+  dueDate: string
+  createdAt: string
+}
+
+export type RecurringSchedule = UpcomingRecurringExpense & {
+  history: RecurringOccurrenceEvent[]
+}
+
 export type LedgerStore = {
   ensureAuthenticatedMember(input: AuthUser): Promise<Member>
   getLedger(): Promise<Ledger>
@@ -99,6 +113,9 @@ export type LedgerStore = {
   addExpenseComment(expenseId: string, input: ExpenseCommentInput, memberId: string): Promise<ExpenseComment>
   getExpenseDetails(expenseId: string): Promise<{ expense?: Expense; comments: ExpenseComment[]; history: ExpenseHistoryEvent[] }>
   recordSettlement(input: SettlementInput): Promise<Expense>
+  listRecurringSchedules(memberId: string, asOf?: string): Promise<RecurringSchedule[]>
+  postRecurringOccurrence(sourceExpenseId: string, actorId: string): Promise<{ source: Expense; occurrence: Expense; event: RecurringOccurrenceEvent }>
+  skipRecurringOccurrence(sourceExpenseId: string, actorId: string): Promise<{ source: Expense; event: RecurringOccurrenceEvent }>
   createReceipt(input: Omit<ReceiptRecord, 'createdAt' | 'reviewHistory'>, actorId?: string): Promise<ReceiptRecord>
   getReceipt(receiptId: string, ownerId: string): Promise<ReceiptRecord | undefined>
   updateReceiptExtraction(receiptId: string, ownerId: string, input: { ocrStatus: ReceiptRecord['ocrStatus']; ocrText?: string; extractedItems: ExtractedReceiptItem[]; source?: ReceiptReviewEvent['source'] }, actorId?: string): Promise<ReceiptRecord>
@@ -136,6 +153,7 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
   const invites: GroupInvite[] = []
   const receipts: ReceiptRecord[] = []
   const receiptReviewEvents: ReceiptReviewEvent[] = []
+  const recurringEvents: RecurringOccurrenceEvent[] = []
 
   for (const group of ledger.groups) {
     group.memberIds.forEach((memberId, index) => roles.set(`${group.id}:${memberId}`, index === 0 ? 'owner' : 'member'))
@@ -196,6 +214,31 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
   }
 
   const findExpense = (expenseId: string) => ledger.expenses.find((expense) => expense.id === expenseId)
+
+  const visibleExpense = (expense: Expense, memberId: string) => {
+    if (expense.groupId) return ledger.groups.find((group) => group.id === expense.groupId)?.memberIds.includes(memberId) ?? false
+    return expense.paidBy === memberId || expense.participants.includes(memberId) || expense.payments?.some((payment) => payment.memberId === memberId)
+  }
+
+  const recurringHistory = (sourceExpenseId: string) =>
+    recurringEvents
+      .filter((event) => event.sourceExpenseId === sourceExpenseId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+
+  const nextRecurringSchedule = (expense: Expense): RecurringSchedule | undefined => {
+    const dueDate = getNextDueDate(expense.date, expense.recurrence ?? 'none')
+    if (!dueDate || !expense.recurrence || expense.recurrence === 'none') return undefined
+    return {
+      sourceExpenseId: expense.id,
+      description: expense.description,
+      dueDate,
+      reminderDate: getReminderDate(dueDate, expense.reminderDays),
+      amount: expense.amount,
+      currency: expense.currency,
+      recurrence: expense.recurrence,
+      history: recurringHistory(expense.id),
+    }
+  }
 
   const applyExpensePatch = (expense: Expense, input: ExpenseUpdateInput): Expense => {
     const receiptItems = input.receiptItems?.map((item) => ({
@@ -514,6 +557,69 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
       audit('settlement', expense.id, 'recorded', input)
       return expense
     },
+    async listRecurringSchedules(memberId, asOf) {
+      return ledger.expenses
+        .filter((expense) => !expense.deletedAt && visibleExpense(expense, memberId))
+        .map(nextRecurringSchedule)
+        .filter((schedule): schedule is RecurringSchedule => Boolean(schedule))
+        .filter((schedule) => !asOf || schedule.dueDate <= asOf)
+    },
+    async postRecurringOccurrence(sourceExpenseId, actorId) {
+      const source = findExpense(sourceExpenseId)
+      if (!source) throw new Error('Expense not found')
+      const dueDate = getNextDueDate(source.date, source.recurrence ?? 'none')
+      if (!dueDate) throw new Error('Expense is not recurring')
+      const occurrence = buildRecurringOccurrence(source, {
+        id: makeId('expense'),
+        dueDate,
+        createdAt: now(),
+        actorId,
+      })
+      const event: RecurringOccurrenceEvent = {
+        id: makeId('recurring_event'),
+        sourceExpenseId,
+        occurrenceExpenseId: occurrence.id,
+        actorId,
+        action: 'posted',
+        dueDate,
+        createdAt: now(),
+      }
+      recurringEvents.unshift(event)
+      ledger = {
+        ...ledger,
+        expenses: [
+          occurrence,
+          ...ledger.expenses.map((expense) =>
+            expense.id === sourceExpenseId ? { ...expense, date: dueDate, updatedAt: event.createdAt } : expense,
+          ),
+        ],
+      }
+      audit('recurring', sourceExpenseId, 'posted', event, actorId)
+      return { source: decorateExpense(findExpense(sourceExpenseId)!), occurrence: decorateExpense(occurrence), event: structuredClone(event) }
+    },
+    async skipRecurringOccurrence(sourceExpenseId, actorId) {
+      const source = findExpense(sourceExpenseId)
+      if (!source) throw new Error('Expense not found')
+      const dueDate = getNextDueDate(source.date, source.recurrence ?? 'none')
+      if (!dueDate) throw new Error('Expense is not recurring')
+      const event: RecurringOccurrenceEvent = {
+        id: makeId('recurring_event'),
+        sourceExpenseId,
+        actorId,
+        action: 'skipped',
+        dueDate,
+        createdAt: now(),
+      }
+      recurringEvents.unshift(event)
+      ledger = {
+        ...ledger,
+        expenses: ledger.expenses.map((expense) =>
+          expense.id === sourceExpenseId ? { ...expense, date: dueDate, updatedAt: event.createdAt } : expense,
+        ),
+      }
+      audit('recurring', sourceExpenseId, 'skipped', event, actorId)
+      return { source: decorateExpense(findExpense(sourceExpenseId)!), event: structuredClone(event) }
+    },
     async createReceipt(input, actorId) {
       const receipt = { ...input, createdAt: now() }
       receipts.unshift(receipt)
@@ -628,6 +734,16 @@ type ReceiptReviewRow = {
   created_at: string
 }
 
+type RecurringOccurrenceRow = {
+  id: string
+  source_expense_id: string
+  occurrence_expense_id?: string
+  actor_id?: string
+  action: RecurringOccurrenceEvent['action']
+  due_date: string
+  created_at: string
+}
+
 type ExpenseCommentRow = {
   id: string
   expense_id: string
@@ -724,6 +840,44 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
       summary: historySummary(row.action, JSON.parse(row.payload_json)),
       createdAt: row.created_at,
     }))
+  }
+
+  const listRecurringHistory = async (sourceExpenseId: string): Promise<RecurringOccurrenceEvent[]> => {
+    const result = await db
+      .prepare('SELECT id, source_expense_id, occurrence_expense_id, actor_id, action, due_date, created_at FROM recurring_occurrences WHERE source_expense_id = ? ORDER BY created_at DESC')
+      .bind(sourceExpenseId)
+      .all<RecurringOccurrenceRow>()
+    return result.results.map((row) => ({
+      id: row.id,
+      sourceExpenseId: row.source_expense_id,
+      occurrenceExpenseId: row.occurrence_expense_id,
+      actorId: row.actor_id,
+      action: row.action,
+      dueDate: row.due_date,
+      createdAt: row.created_at,
+    }))
+  }
+
+  const addRecurringEvent = async (event: RecurringOccurrenceEvent) => {
+    await db
+      .prepare('INSERT INTO recurring_occurrences (id, source_expense_id, occurrence_expense_id, actor_id, action, due_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind(event.id, event.sourceExpenseId, event.occurrenceExpenseId, event.actorId, event.action, event.dueDate, event.createdAt)
+      .run()
+  }
+
+  const toRecurringSchedule = async (expense: Expense): Promise<RecurringSchedule | undefined> => {
+    const dueDate = getNextDueDate(expense.date, expense.recurrence ?? 'none')
+    if (!dueDate || !expense.recurrence || expense.recurrence === 'none') return undefined
+    return {
+      sourceExpenseId: expense.id,
+      description: expense.description,
+      dueDate,
+      reminderDate: getReminderDate(dueDate, expense.reminderDays),
+      amount: expense.amount,
+      currency: expense.currency,
+      recurrence: expense.recurrence,
+      history: await listRecurringHistory(expense.id),
+    }
   }
 
   const toExpense = async (row: ExpenseRow): Promise<Expense> => ({
@@ -1356,6 +1510,80 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
         .run()
       await audit('settlement', expense.id, 'recorded', input)
       return expense
+    },
+    async listRecurringSchedules(memberId, asOf) {
+      const groups = await this.listGroups()
+      const visibleGroupIds = new Set(groups.filter((group) => group.memberIds.includes(memberId)).map((group) => group.id))
+      const expenses = await this.listExpenses()
+      const schedules = await Promise.all(
+        expenses
+          .filter((expense) => !expense.deletedAt)
+          .filter((expense) => {
+            if (expense.groupId) return visibleGroupIds.has(expense.groupId)
+            return expense.paidBy === memberId || expense.participants.includes(memberId) || expense.payments?.some((payment) => payment.memberId === memberId)
+          })
+          .map(toRecurringSchedule),
+      )
+      return schedules
+        .filter((schedule): schedule is RecurringSchedule => Boolean(schedule))
+        .filter((schedule) => !asOf || schedule.dueDate <= asOf)
+    },
+    async postRecurringOccurrence(sourceExpenseId, actorId) {
+      const row = await findExpenseRow(sourceExpenseId)
+      if (!row) throw new Error('Expense not found')
+      const source = await toExpense(row)
+      const dueDate = getNextDueDate(source.date, source.recurrence ?? 'none')
+      if (!dueDate) throw new Error('Expense is not recurring')
+      const occurrence = buildRecurringOccurrence(source, {
+        id: makeId('expense'),
+        dueDate,
+        createdAt: now(),
+        actorId,
+      })
+      const created = await this.createExpense({
+        ...occurrence,
+        payments: occurrence.payments ?? [],
+        receiptItems: occurrence.receiptItems ?? [],
+        recurrence: 'none',
+      })
+      await db.prepare('UPDATE expenses SET date = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(dueDate, sourceExpenseId).run()
+      await db.prepare('UPDATE recurring_rules SET next_due_date = ?, updated_at = CURRENT_TIMESTAMP WHERE expense_id = ?').bind(dueDate, sourceExpenseId).run()
+      const event: RecurringOccurrenceEvent = {
+        id: makeId('recurring_event'),
+        sourceExpenseId,
+        occurrenceExpenseId: created.id,
+        actorId,
+        action: 'posted',
+        dueDate,
+        createdAt: now(),
+      }
+      await addRecurringEvent(event)
+      await audit('recurring', sourceExpenseId, 'posted', event, actorId)
+      const updatedSource = await findExpenseRow(sourceExpenseId)
+      if (!updatedSource) throw new Error('Recurring source was not updated')
+      return { source: await toExpense(updatedSource), occurrence: created, event }
+    },
+    async skipRecurringOccurrence(sourceExpenseId, actorId) {
+      const row = await findExpenseRow(sourceExpenseId)
+      if (!row) throw new Error('Expense not found')
+      const source = await toExpense(row)
+      const dueDate = getNextDueDate(source.date, source.recurrence ?? 'none')
+      if (!dueDate) throw new Error('Expense is not recurring')
+      await db.prepare('UPDATE expenses SET date = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(dueDate, sourceExpenseId).run()
+      await db.prepare('UPDATE recurring_rules SET next_due_date = ?, updated_at = CURRENT_TIMESTAMP WHERE expense_id = ?').bind(dueDate, sourceExpenseId).run()
+      const event: RecurringOccurrenceEvent = {
+        id: makeId('recurring_event'),
+        sourceExpenseId,
+        actorId,
+        action: 'skipped',
+        dueDate,
+        createdAt: now(),
+      }
+      await addRecurringEvent(event)
+      await audit('recurring', sourceExpenseId, 'skipped', event, actorId)
+      const updatedSource = await findExpenseRow(sourceExpenseId)
+      if (!updatedSource) throw new Error('Recurring source was not updated')
+      return { source: await toExpense(updatedSource), event }
     },
     async createReceipt(input, actorId) {
       await db
