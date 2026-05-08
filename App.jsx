@@ -1135,13 +1135,11 @@ function SplitClubApp() {
     }
   }
 
-  const openCloudReceipt = async (receiptId) => {
+  const openReceiptFile = async ({ receiptId, fileName = 'receipt', contentType }) => {
     if (!cloudSyncReady) {
       setReceiptLibraryStatus('Sign in and configure cloud sync to open receipts')
       return
     }
-    const receipt = cloudReceipts.find((candidate) => candidate.id === receiptId)
-    if (!receipt) return
     const url = `${cloudApiUrl}/api/receipts/${receiptId}/file`
     try {
       if (Platform.OS === 'web') {
@@ -1152,24 +1150,51 @@ function SplitClubApp() {
         window.open(objectUrl, '_blank', 'noopener,noreferrer')
         setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000)
       } else {
-        const fileName = (receipt.fileName ?? 'receipt').replace(/[^a-zA-Z0-9._-]+/g, '-')
-        const localUri = `${FileSystem.cacheDirectory}${fileName}`
+        const safeFileName = fileName.replace(/[^a-zA-Z0-9._-]+/g, '-')
+        const localUri = `${FileSystem.cacheDirectory}${safeFileName}`
         const download = await FileSystem.downloadAsync(url, localUri, {
           headers: sessionHeaders(authSession),
         })
         if (await Sharing.isAvailableAsync()) {
           await Sharing.shareAsync(download.uri, {
-            mimeType: receipt.contentType,
-            dialogTitle: receipt.fileName ?? 'Receipt',
+            mimeType: contentType,
+            dialogTitle: fileName,
           })
         } else {
           await Linking.openURL(download.uri)
         }
       }
-      setReceiptLibraryStatus(`Opened ${receipt.fileName ?? 'receipt'}`)
+      setReceiptLibraryStatus(`Opened ${fileName}`)
+      setSyncState(`Opened ${fileName}`)
     } catch (error) {
       setReceiptLibraryStatus(error instanceof Error ? error.message : 'Receipt open failed')
     }
+  }
+
+  const openCloudReceipt = async (receiptId) => {
+    const receipt = cloudReceipts.find((candidate) => candidate.id === receiptId)
+    if (!receipt) return
+    await openReceiptFile({
+      receiptId,
+      fileName: receipt.fileName ?? 'receipt',
+      contentType: receipt.contentType,
+    })
+  }
+
+  const openSelectedExpenseReceipt = async () => {
+    if (!selectedExpense) return
+    if (!selectedExpense.receiptId) {
+      const label = selectedExpense.attachmentName ?? 'This expense'
+      setSyncState(`${label} is saved as local attachment metadata`)
+      Alert.alert('Local attachment', 'This expense has an attachment name but no cloud receipt file yet.')
+      return
+    }
+    const receipt = cloudReceipts.find((candidate) => candidate.id === selectedExpense.receiptId)
+    await openReceiptFile({
+      receiptId: selectedExpense.receiptId,
+      fileName: receipt?.fileName ?? selectedExpense.attachmentName ?? 'receipt',
+      contentType: receipt?.contentType,
+    })
   }
 
   const removeReceiptItem = (itemId) => {
@@ -1796,6 +1821,7 @@ function SplitClubApp() {
     applyCloudReceipt,
     retryCloudReceipt,
     openCloudReceipt,
+    openSelectedExpenseReceipt,
     removeReceiptItem,
     friendName,
     setFriendName,
@@ -2203,6 +2229,13 @@ function ExpenseDetailScreen({ state }) {
   if (!expense) return null
   const comments = expense.comments ?? []
   const history = expense.history ?? []
+  const linkedReceipt = expense.receiptId ? state.cloudReceipts.find((receipt) => receipt.id === expense.receiptId) : null
+  const receiptLabel = linkedReceipt?.fileName ?? expense.attachmentName ?? 'Receipt'
+  const receiptMeta = expense.receiptId
+    ? linkedReceipt
+      ? `${linkedReceipt.ocrStatus} · ${linkedReceipt.extractedItems?.length ?? 0} items`
+      : 'Cloud receipt linked'
+    : 'Local attachment metadata only'
   return (
     <>
       <Panel title={expense.description} actionLabel="Back" onAction={state.closeExpense}>
@@ -2229,7 +2262,7 @@ function ExpenseDetailScreen({ state }) {
               ['Payer shares', expense.payments?.length ? expense.payments.map((payment) => `${state.memberName(payment.memberId)} ${expense.currency} ${payment.value.toFixed(2)}`).join(', ') : 'Single payer'],
               ['Participants', expense.participants.map(state.memberName).join(', ')],
               ['Notes', expense.notes ?? 'No notes'],
-              ['Attachment', expense.attachmentName ?? 'No attachment'],
+              ['Attachment', expense.receiptId ? `${receiptLabel} · ${receiptMeta}` : expense.attachmentName ?? 'No attachment'],
               ...(expense.paymentMethod
                 ? [
                     ['Payment', `${expense.paymentMethod} · ${expense.paymentStatus ?? 'recorded'}`],
@@ -2238,6 +2271,22 @@ function ExpenseDetailScreen({ state }) {
                 : []),
             ]}
           />
+          {expense.receiptId || expense.attachmentName ? (
+            <YStack bg="#f4f4f5" borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3" gap="$2">
+              <XStack ai="center" jc="space-between" gap="$3">
+                <YStack flex={1}>
+                  <Text color="#09090b" fontSize={14} fontWeight="900">
+                    {receiptLabel}
+                  </Text>
+                  <Muted>{receiptMeta}</Muted>
+                </YStack>
+                <ReceiptText size={18} color="#09090b" />
+              </XStack>
+              <XStack>
+                <SecondaryButton icon={<Download size={16} color="#09090b" />} label={expense.receiptId ? 'Open receipt' : 'Attachment noted'} onPress={state.openSelectedExpenseReceipt} />
+              </XStack>
+            </YStack>
+          ) : null}
           {expense.receiptItems?.length ? (
             <YStack gap="$2">
               <Label>Receipt items</Label>
