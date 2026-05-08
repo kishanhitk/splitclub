@@ -37,6 +37,35 @@ describe('split engine', () => {
     expect(kishan?.amount).toBe(16300)
   })
 
+  test('credits multiple payers on a single expense', () => {
+    const ledger = {
+      ...seedLedger,
+      expenses: [
+        {
+          id: 'multi-payer',
+          groupId: 'goa',
+          description: 'Shared hotel deposit',
+          amount: 1000,
+          currency: 'INR',
+          paidBy: 'kishan',
+          payments: [
+            { memberId: 'kishan', value: 700 },
+            { memberId: 'anya', value: 300 },
+          ],
+          participants: ['kishan', 'anya'],
+          splitMode: 'equal' as const,
+          splits: [],
+          category: 'Lodging',
+          kind: 'expense' as const,
+          date: '2026-05-08',
+        },
+      ],
+    }
+    const balances = calculateBalances(ledger, 'goa', 'INR')
+    expect(balances).toContainEqual({ memberId: 'kishan', amount: 200 })
+    expect(balances).toContainEqual({ memberId: 'anya', amount: -200 })
+  })
+
   test('simplifies balances into minimal settlement suggestions', () => {
     const settlements = simplifyDebts(calculateBalances(seedLedger, 'goa', 'INR'), 'INR')
     expect(settlements).toHaveLength(3)
@@ -155,6 +184,7 @@ describe('split engine', () => {
   test('exports CSV rows and full JSON backup payloads', () => {
     const csv = exportCsv(seedLedger)
     expect(csv.split('\n')[0]).toContain('date,description,category')
+    expect(csv.split('\n')[0]).toContain('payer_shares')
     expect(csv).toContain('"Beach villa"')
     expect(csv).not.toContain('deleted')
 

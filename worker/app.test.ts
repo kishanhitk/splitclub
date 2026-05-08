@@ -91,6 +91,10 @@ describe('SplitClub Worker API', () => {
           amount: 4200,
           currency: 'INR',
           paidBy: 'kishan',
+          payments: [
+            { memberId: 'kishan', value: 3000 },
+            { memberId: 'anya', value: 1200 },
+          ],
           participants: ['kishan', 'anya', 'dev', 'mia'],
           splitMode: 'equal',
           category: 'Tickets',
@@ -100,15 +104,38 @@ describe('SplitClub Worker API', () => {
       },
       env,
     )
-    const body = (await response.json()) as { expense: { description: string } }
+    const body = (await response.json()) as { expense: { description: string; payments?: Array<{ memberId: string; value: number }> } }
 
     expect(response.status).toBe(201)
     expect(body.expense.description).toBe('Museum tickets')
+    expect(body.expense.payments).toContainEqual({ memberId: 'anya', value: 1200 })
 
     const searchResponse = await request('/api/search?q=museum&groupId=goa', {}, env)
     const searchBody = (await searchResponse.json()) as { expenses: unknown[] }
     expect(searchBody.expenses).toHaveLength(1)
     expect(queueMessages.some((message) => JSON.stringify(message).includes('expense.created'))).toBe(true)
+
+    const invalidPayersResponse = await request(
+      '/api/expenses',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          groupId: 'goa',
+          description: 'Bad payer total',
+          amount: 100,
+          currency: 'INR',
+          paidBy: 'kishan',
+          payments: [{ memberId: 'kishan', value: 90 }],
+          participants: ['kishan', 'anya'],
+          splitMode: 'equal',
+          category: 'Food',
+          kind: 'expense',
+          date: '2026-05-08',
+        }),
+      },
+      env,
+    )
+    expect(invalidPayersResponse.status).toBe(400)
   })
 
   test('calculates balances and records settlements', async () => {

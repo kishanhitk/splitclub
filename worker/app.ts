@@ -16,7 +16,7 @@ import {
   settlementSchema,
 } from '../src/contracts/api'
 import type { Ledger, Member } from '../src/domain/split'
-import { calculateBalances, exportCsv, exportJsonBackup, simplifyDebts, validateGroupDefaultSplits } from '../src/domain/split'
+import { calculateBalances, exportCsv, exportJsonBackup, roundMoney, simplifyDebts, validateGroupDefaultSplits } from '../src/domain/split'
 import { mapEventToNotification } from '../src/notifications/activity'
 import { AuthError, authenticateRequest, type AuthBindings } from './auth'
 import { extractReceiptItems, type OcrBindings } from './ocr'
@@ -45,12 +45,13 @@ function scopeLedger(ledger: Ledger, userId: string): Ledger {
   const visibleExpenses = ledger.expenses.filter((expense) => {
     if (expense.deletedAt) return false
     if (expense.groupId) return visibleGroupIds.has(expense.groupId)
-    return expense.paidBy === userId || expense.participants.includes(userId)
+    return expense.paidBy === userId || expense.participants.includes(userId) || (expense.payments ?? []).some((payment) => payment.memberId === userId)
   })
   const visibleMemberIds = new Set<string>([userId])
   visibleGroups.forEach((group) => group.memberIds.forEach((memberId) => visibleMemberIds.add(memberId)))
   visibleExpenses.forEach((expense) => {
     visibleMemberIds.add(expense.paidBy)
+    ;(expense.payments ?? []).forEach((payment) => visibleMemberIds.add(payment.memberId))
     expense.participants.forEach((memberId) => visibleMemberIds.add(memberId))
   })
   return {
@@ -82,13 +83,14 @@ function scopedAuditEvents(ledger: Ledger, events: Awaited<ReturnType<LedgerStor
   const groupIds = new Set(visibleGroups.map((group) => group.id))
   const visibleExpenses = ledger.expenses.filter((expense) => {
     if (expense.groupId) return groupIds.has(expense.groupId)
-    return expense.paidBy === userId || expense.participants.includes(userId)
+    return expense.paidBy === userId || expense.participants.includes(userId) || (expense.payments ?? []).some((payment) => payment.memberId === userId)
   })
   const expenseIds = new Set(visibleExpenses.map((expense) => expense.id))
   const memberIds = new Set<string>([userId])
   visibleGroups.forEach((group) => group.memberIds.forEach((memberId) => memberIds.add(memberId)))
   visibleExpenses.forEach((expense) => {
     memberIds.add(expense.paidBy)
+    ;(expense.payments ?? []).forEach((payment) => memberIds.add(payment.memberId))
     expense.participants.forEach((memberId) => memberIds.add(memberId))
   })
   return events.filter((event) => {
@@ -289,9 +291,12 @@ export function createApp() {
     const store = getStore(c.env)
     const member = currentMember(c.get('authMember'))
     const payload = expenseSchema.parse(await c.req.json())
+    if (payload.payments.length && roundMoney(payload.payments.reduce((sum, payment) => sum + payment.value, 0)) !== roundMoney(payload.amount)) {
+      return c.json({ error: 'invalid_payers', message: 'Payer shares must match the expense total.' }, 400)
+    }
     if (payload.groupId) {
       await requireGroupAccess(store, member.id, payload.groupId)
-    } else if (payload.paidBy !== member.id && !payload.participants.includes(member.id)) {
+    } else if (payload.paidBy !== member.id && !payload.participants.includes(member.id) && !payload.payments.some((payment) => payment.memberId === member.id)) {
       throw new AuthError('Non-group expenses must include the authenticated user', 403)
     }
     const expense = await store.createExpense(payload)
@@ -312,11 +317,15 @@ export function createApp() {
     const member = currentMember(c.get('authMember'))
     const existing = await requireExpenseAccess(store, member.id, c.req.param('id'))
     const payload = expenseUpdateSchema.parse(await c.req.json())
+    if (payload.payments?.length && roundMoney(payload.payments.reduce((sum, payment) => sum + payment.value, 0)) !== roundMoney(payload.amount ?? existing.amount)) {
+      return c.json({ error: 'invalid_payers', message: 'Payer shares must match the expense total.' }, 400)
+    }
     if (payload.groupId) await requireGroupAccess(store, member.id, payload.groupId)
     const nextGroupId = payload.groupId === undefined ? existing.groupId : payload.groupId
     const nextPaidBy = payload.paidBy ?? existing.paidBy
     const nextParticipants = payload.participants ?? existing.participants
-    if (!nextGroupId && nextPaidBy !== member.id && !nextParticipants.includes(member.id)) {
+    const nextPayments = payload.payments ?? existing.payments ?? []
+    if (!nextGroupId && nextPaidBy !== member.id && !nextParticipants.includes(member.id) && !nextPayments.some((payment) => payment.memberId === member.id)) {
       throw new AuthError('Non-group expenses must include the authenticated user', 403)
     }
     const expense = await store.updateExpense(c.req.param('id'), payload, member.id)
@@ -349,7 +358,7 @@ export function createApp() {
     if (!details.expense) throw new AuthError('Expense is not visible to this user', 403)
     if (details.expense.groupId) {
       await requireGroupAccess(store, member.id, details.expense.groupId)
-    } else if (details.expense.paidBy !== member.id && !details.expense.participants.includes(member.id)) {
+    } else if (details.expense.paidBy !== member.id && !details.expense.participants.includes(member.id) && !(details.expense.payments ?? []).some((payment) => payment.memberId === member.id)) {
       throw new AuthError('Expense is not visible to this user', 403)
     }
     const expense = await store.restoreExpense(c.req.param('id'), member.id)
