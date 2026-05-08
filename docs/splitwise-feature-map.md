@@ -38,6 +38,7 @@ SplitClub should cover the following Splitwise-style capabilities:
 
 - React Native app targets Android and web through Expo.
 - Mobile-first UI includes a production app shell with a focused Home workspace, activity, groups, add-expense flow, balances, and tools; web/tablet layouts gain a persistent monochrome navigation rail while Android keeps a tight five-item bottom tab bar.
+- The app shell is split into production modules for shared route constants, mobile/web screen surfaces, navigation, and reusable UI primitives instead of keeping every workspace inside `App.jsx`.
 - The visual system follows a clean monochrome Tamagui v2 surface language aligned with shadcn-style hierarchy, using Expo-compatible latest dependency ranges instead of unsupported React Native peer versions.
 - Focused workspaces cover groups, friends, invites/roles, stepped expense creation, split mode controls, balances, simplified settlements, search, category totals, recurring/receipt/export affordances, currency conversion controls, and offline persistence.
 - Domain logic is isolated in `src/domain/split.ts` and covered by Bun tests.
