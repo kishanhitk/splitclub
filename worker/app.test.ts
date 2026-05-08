@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { seedLedger } from '../src/data/seed'
-import { createApp, runRecurringScheduler, type Bindings } from './app'
+import { createApp, deliverQueueMessages, runRecurringScheduler, type Bindings } from './app'
 import { createMemoryLedgerStore } from './store'
 
 const queueMessages: unknown[] = []
@@ -445,6 +445,41 @@ describe('SplitClub Worker API', () => {
       dueDate: '2026-06-03',
       reminderDate: '2026-05-31',
     }))
+  })
+
+  test('queue consumer delivers recurring due messages into scoped notifications', async () => {
+    const env = createEnv()
+    const message = {
+      type: 'recurring.due',
+      notificationId: 'recurring:e3:2026-06-03',
+      sourceExpenseId: 'e3',
+      description: 'Monthly rent',
+      dueDate: '2026-06-03',
+      reminderDate: '2026-05-31',
+      amount: 60000,
+      currency: 'INR',
+      createdAt: '2026-05-31T03:00:00.000Z',
+    }
+
+    await expect(deliverQueueMessages(env, [message, message])).resolves.toEqual({ delivered: 2 })
+
+    const notificationsResponse = await request('/api/notifications?limit=5', {}, env)
+    const notificationsBody = (await notificationsResponse.json()) as {
+      notifications: Array<{ id: string; type: string; title: string; body: string; entityId: string; splitwiseType: number }>
+    }
+    const recurringNotifications = notificationsBody.notifications.filter((notification) => notification.id === message.notificationId)
+    expect(recurringNotifications).toHaveLength(1)
+    expect(recurringNotifications[0]).toMatchObject({
+      type: 'recurring_due',
+      title: 'Recurring bill due',
+      body: 'Monthly rent',
+      entityId: 'e3',
+      splitwiseType: 18,
+    })
+
+    const outsiderResponse = await request('/api/notifications?limit=5', { headers: { Authorization: 'Bearer test-outsider' } }, env, false)
+    const outsiderBody = (await outsiderResponse.json()) as { notifications: Array<{ id: string }> }
+    expect(outsiderBody.notifications.some((notification) => notification.id === message.notificationId)).toBe(false)
   })
 
   test('creates friends, invites members, and updates permissions', async () => {

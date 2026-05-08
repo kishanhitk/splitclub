@@ -46,6 +46,18 @@ export type RecurringSchedulerResult = {
   queued: number
 }
 
+type RecurringDueQueueMessage = {
+  type: 'recurring.due'
+  notificationId: string
+  sourceExpenseId: string
+  description: string
+  dueDate: string
+  reminderDate?: string
+  amount: number
+  currency: string
+  createdAt: string
+}
+
 type Variables = {
   authMember: Member
 }
@@ -112,6 +124,7 @@ function scopedAuditEvents(ledger: Ledger, events: Awaited<ReturnType<LedgerStor
   })
   return events.filter((event) => {
     if (event.entityType === 'expense' || event.entityType === 'settlement') return expenseIds.has(event.entityId)
+    if (event.entityType === 'recurring') return expenseIds.has(event.entityId)
     if (event.entityType === 'group' || event.entityType === 'group_invite') return groupIds.has(event.entityId) || groupIds.has(String((event.payload as { groupId?: unknown })?.groupId ?? ''))
     if (event.entityType === 'membership') {
       const [groupId, memberId] = event.entityId.split(':')
@@ -213,6 +226,37 @@ export async function runRecurringScheduler(env: Bindings, asOf = new Date().toI
     scanned: schedules.length,
     queued: dueSchedules.length,
   }
+}
+
+export async function deliverQueueMessages(env: Bindings, messages: unknown[]) {
+  const store = getStore(env)
+  const delivered: RecurringDueQueueMessage[] = []
+  for (const message of messages) {
+    if (!isRecurringDueMessage(message)) continue
+    await store.recordAuditEvent({
+      id: message.notificationId,
+      entityType: 'recurring',
+      entityId: message.sourceExpenseId,
+      action: 'due',
+      payload: message,
+      createdAt: message.createdAt,
+    })
+    delivered.push(message)
+  }
+  return { delivered: delivered.length }
+}
+
+function isRecurringDueMessage(value: unknown): value is RecurringDueQueueMessage {
+  if (typeof value !== 'object' || value === null) return false
+  const record = value as Partial<RecurringDueQueueMessage>
+  return record.type === 'recurring.due' &&
+    typeof record.notificationId === 'string' &&
+    typeof record.sourceExpenseId === 'string' &&
+    typeof record.description === 'string' &&
+    typeof record.dueDate === 'string' &&
+    typeof record.amount === 'number' &&
+    typeof record.currency === 'string' &&
+    typeof record.createdAt === 'string'
 }
 
 export function createApp() {
