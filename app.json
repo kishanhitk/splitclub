@@ -29,7 +29,8 @@
     },
     "plugins": [
       "expo-web-browser",
-      "expo-notifications"
+      "expo-notifications",
+      "expo-sharing"
     ]
   }
 }

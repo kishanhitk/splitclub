@@ -1,7 +1,9 @@
 import { StatusBar } from 'expo-status-bar'
 import * as AuthSession from 'expo-auth-session'
 import * as DocumentPicker from 'expo-document-picker'
+import * as FileSystem from 'expo-file-system'
 import * as Notifications from 'expo-notifications'
+import * as Sharing from 'expo-sharing'
 import * as WebBrowser from 'expo-web-browser'
 import { useEffect, useMemo, useState } from 'react'
 import { Alert, Linking, Platform, SafeAreaView, Share, useWindowDimensions } from 'react-native'
@@ -1066,6 +1068,43 @@ function SplitClubApp() {
     }
   }
 
+  const openCloudReceipt = async (receiptId) => {
+    if (!cloudSyncReady) {
+      setReceiptLibraryStatus('Sign in and configure cloud sync to open receipts')
+      return
+    }
+    const receipt = cloudReceipts.find((candidate) => candidate.id === receiptId)
+    if (!receipt) return
+    const url = `${cloudApiUrl}/api/receipts/${receiptId}/file`
+    try {
+      if (Platform.OS === 'web') {
+        const response = await fetch(url, { headers: sessionHeaders(authSession) })
+        if (!response.ok) throw new Error(`Worker returned ${response.status}`)
+        const blob = await response.blob()
+        const objectUrl = URL.createObjectURL(blob)
+        window.open(objectUrl, '_blank', 'noopener,noreferrer')
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000)
+      } else {
+        const fileName = (receipt.fileName ?? 'receipt').replace(/[^a-zA-Z0-9._-]+/g, '-')
+        const localUri = `${FileSystem.cacheDirectory}${fileName}`
+        const download = await FileSystem.downloadAsync(url, localUri, {
+          headers: sessionHeaders(authSession),
+        })
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(download.uri, {
+            mimeType: receipt.contentType,
+            dialogTitle: receipt.fileName ?? 'Receipt',
+          })
+        } else {
+          await Linking.openURL(download.uri)
+        }
+      }
+      setReceiptLibraryStatus(`Opened ${receipt.fileName ?? 'receipt'}`)
+    } catch (error) {
+      setReceiptLibraryStatus(error instanceof Error ? error.message : 'Receipt open failed')
+    }
+  }
+
   const removeReceiptItem = (itemId) => {
     setReceiptItems((items) => items.filter((item) => item.id !== itemId))
   }
@@ -1687,6 +1726,7 @@ function SplitClubApp() {
     loadCloudReceipts,
     applyCloudReceipt,
     retryCloudReceipt,
+    openCloudReceipt,
     removeReceiptItem,
     friendName,
     setFriendName,
@@ -2720,6 +2760,11 @@ function AddExpenseScreen({ state }) {
                     {lifecycleLabel ? <Muted>{lifecycleLabel}</Muted> : null}
                   </YStack>
                   <XStack gap="$3">
+                    <Button unstyled onPress={() => state.openCloudReceipt(receipt.id)}>
+                      <SizableText color="#71717a" size="$2" fontWeight="900">
+                        Open
+                      </SizableText>
+                    </Button>
                     <Button unstyled onPress={() => state.retryCloudReceipt(receipt.id)}>
                       <SizableText color="#71717a" size="$2" fontWeight="900">
                         Retry

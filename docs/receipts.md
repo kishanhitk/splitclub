@@ -5,6 +5,7 @@ SplitClub receipt handling uses Expo DocumentPicker on Android/web and Cloudflar
 ## Worker Routes
 
 - `GET /api/receipts` lists receipts owned by the authenticated member, including extracted items, linked expense id, and review history.
+- `GET /api/receipts/:id/file` streams an owned receipt file from R2 with the original content type and an inline file name.
 - `POST /api/receipts` accepts multipart form data with:
   - `file`: receipt image or PDF.
   - `expenseId`: optional linked expense id.
@@ -37,4 +38,4 @@ Each receipt review history row records the action, source, OCR status, item cou
 
 The Add screen lets users choose a receipt, run extraction, review the extracted line items, adjust assignments/amounts through the existing itemization controls, and then save the expense.
 
-When cloud sync is configured, the receipt step can also load `GET /api/receipts`, show the latest uploaded receipts with compact review history, retry OCR from the reviewed OCR text, select a cloud receipt for the current expense, and save that receipt link with the expense. If cloud sync is unavailable, local OCR text extraction remains available.
+When cloud sync is configured, the receipt step can also load `GET /api/receipts`, show the latest uploaded receipts with compact review history, open the original receipt file through an authenticated handoff, retry OCR from the reviewed OCR text, select a cloud receipt for the current expense, and save that receipt link with the expense. If cloud sync is unavailable, local OCR text extraction remains available.
