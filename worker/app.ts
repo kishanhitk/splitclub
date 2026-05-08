@@ -791,6 +791,16 @@ export function createApp() {
     return c.json({ receipt: updated, extractedItems: extraction.items })
   })
 
+  app.post('/api/receipts/:id/review', async (c) => {
+    const store = getStore(c.env)
+    const member = currentMember(c.get('authMember'))
+    const visibleReceipt = await store.getReceipt(c.req.param('id'), member.id)
+    if (!visibleReceipt) return c.json({ error: 'receipt_not_found', message: 'Receipt is not visible to this user.' }, 404)
+    const receipt = await store.recordReceiptReview(c.req.param('id'), member.id, member.id)
+    await c.env.SYNC_QUEUE?.send({ type: 'receipt.reviewed', receiptId: receipt.id, itemCount: receipt.extractedItems.length, createdAt: new Date().toISOString() })
+    return c.json({ receipt })
+  })
+
   app.get('/api/recurring', async (c) => {
     const store = getStore(c.env)
     const member = currentMember(c.get('authMember'))

@@ -65,8 +65,8 @@ export type ReceiptReviewEvent = {
   id: string
   receiptId: string
   actorId?: string
-  action: 'uploaded' | 'retried' | 'linked'
-  source: 'upload' | 'review_text' | 'stored_object' | 'expense_link'
+  action: 'uploaded' | 'retried' | 'linked' | 'reviewed'
+  source: 'upload' | 'review_text' | 'stored_object' | 'expense_link' | 'manual_review'
   ocrStatus: ReceiptRecord['ocrStatus']
   itemCount: number
   createdAt: string
@@ -120,6 +120,7 @@ export type LedgerStore = {
   createReceipt(input: Omit<ReceiptRecord, 'createdAt' | 'reviewHistory'>, actorId?: string): Promise<ReceiptRecord>
   getReceipt(receiptId: string, ownerId: string): Promise<ReceiptRecord | undefined>
   updateReceiptExtraction(receiptId: string, ownerId: string, input: { ocrStatus: ReceiptRecord['ocrStatus']; ocrText?: string; extractedItems: ExtractedReceiptItem[]; source?: ReceiptReviewEvent['source'] }, actorId?: string): Promise<ReceiptRecord>
+  recordReceiptReview(receiptId: string, ownerId: string, actorId?: string): Promise<ReceiptRecord>
   linkReceiptToExpense(receiptId: string, ownerId: string, expenseId: string, actorId?: string): Promise<ReceiptRecord>
   listReceipts(ownerId: string): Promise<ReceiptRecord[]>
   recordAuditEvent(input: AuditEvent): Promise<AuditEvent>
@@ -674,6 +675,13 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
       addReceiptReview(updated, 'retried', input.source ?? 'stored_object', actorId)
       audit('receipt', receiptId, 'retried', updated, actorId)
       return structuredClone(decorateReceipt(updated))
+    },
+    async recordReceiptReview(receiptId, ownerId, actorId) {
+      const receipt = receipts.find((candidate) => candidate.id === receiptId && candidate.ownerId === ownerId)
+      if (!receipt) throw new Error('Receipt not found')
+      addReceiptReview(receipt, 'reviewed', 'manual_review', actorId)
+      audit('receipt', receiptId, 'reviewed', { itemCount: receipt.extractedItems.length }, actorId)
+      return structuredClone(decorateReceipt(receipt))
     },
     async linkReceiptToExpense(receiptId, ownerId, expenseId, actorId) {
       const receipt = receipts.find((candidate) => candidate.id === receiptId && candidate.ownerId === ownerId)
@@ -1690,6 +1698,15 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
       await audit('receipt', receiptId, 'retried', input, actorId)
       const updated = await this.getReceipt(receiptId, ownerId)
       if (!updated) throw new Error('Receipt was not updated')
+      return updated
+    },
+    async recordReceiptReview(receiptId, ownerId, actorId) {
+      const receipt = await this.getReceipt(receiptId, ownerId)
+      if (!receipt) throw new Error('Receipt not found')
+      await addReceiptReview(receiptId, 'reviewed', 'manual_review', receipt.ocrStatus, receipt.extractedItems.length, actorId)
+      await audit('receipt', receiptId, 'reviewed', { itemCount: receipt.extractedItems.length }, actorId)
+      const updated = await this.getReceipt(receiptId, ownerId)
+      if (!updated) throw new Error('Receipt review was not stored')
       return updated
     },
     async linkReceiptToExpense(receiptId, ownerId, expenseId, actorId) {

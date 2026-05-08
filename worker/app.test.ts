@@ -944,6 +944,36 @@ describe('SplitClub Worker API', () => {
     expect(queueMessages.some((message) => JSON.stringify(message).includes('receipt.ocr_retried'))).toBe(true)
   })
 
+  test('marks receipt itemization reviewed before expense linking', async () => {
+    const env = createEnv()
+    const form = new FormData()
+    form.set('file', new File(['receipt image bytes'], 'reviewed.jpg', { type: 'image/jpeg' }))
+    form.set('ocrText', 'Coffee 220\nCake 180')
+    form.append('assignedTo', 'kishan')
+    form.append('assignedTo', 'anya')
+
+    const uploadResponse = await request('/api/receipts', { method: 'POST', body: form }, env)
+    const uploadBody = (await uploadResponse.json()) as { receipt: { id: string } }
+
+    const reviewResponse = await request(`/api/receipts/${uploadBody.receipt.id}/review`, { method: 'POST' }, env)
+    const reviewBody = (await reviewResponse.json()) as {
+      receipt: { reviewHistory: Array<{ action: string; source: string; itemCount: number }> }
+    }
+
+    expect(reviewResponse.status).toBe(200)
+    expect(reviewBody.receipt.reviewHistory.map((event) => event.action)).toEqual(['reviewed', 'uploaded'])
+    expect(reviewBody.receipt.reviewHistory[0]).toMatchObject({ source: 'manual_review', itemCount: 2 })
+    expect(queueMessages.some((message) => JSON.stringify(message).includes('receipt.reviewed'))).toBe(true)
+
+    const outsiderReviewResponse = await request(
+      `/api/receipts/${uploadBody.receipt.id}/review`,
+      { method: 'POST', headers: { Authorization: 'Bearer test-outsider' } },
+      env,
+      false,
+    )
+    expect(outsiderReviewResponse.status).toBe(404)
+  })
+
   test('links a cloud receipt to a saved expense and exposes lifecycle history', async () => {
     const env = createEnv()
     const form = new FormData()
