@@ -127,6 +127,8 @@ function SplitClubApp() {
   const [recurrence, setRecurrence] = useState('none')
   const [reminderDays, setReminderDays] = useState('3')
   const [paidBy, setPaidBy] = useState('kishan')
+  const [payerMode, setPayerMode] = useState('single')
+  const [payerValues, setPayerValues] = useState({})
   const [attachmentName, setAttachmentName] = useState('receipt.jpg')
   const [receiptFile, setReceiptFile] = useState(null)
   const [receiptOcrText, setReceiptOcrText] = useState('Cab fare 2400\nToll 1200')
@@ -234,6 +236,17 @@ function SplitClubApp() {
     () => buildSplitPreview(Number(amount), splitMode, membersForGroup.map((member) => member.id), splitValues),
     [amount, splitMode, membersForGroup, splitValues],
   )
+  const payerShares = useMemo(
+    () => valuesToSplits(payerValuesWithFallback(payerValues, membersForGroup.map((member) => member.id), Number(amount), paidBy), membersForGroup.map((member) => member.id)),
+    [payerValues, membersForGroup, amount, paidBy],
+  )
+  const payerTotal = roundMoney(payerShares.reduce((sum, payment) => sum + payment.value, 0))
+  const payerValidation = payerMode === 'single'
+    ? { valid: true, message: paidBy }
+    : {
+        valid: payerTotal === roundMoney(Number(amount)),
+        message: payerTotal === roundMoney(Number(amount)) ? 'Payers match total' : `${payerTotal.toFixed(2)} paid`,
+      }
   const groupDefaultSplits = useMemo(
     () => valuesToSplits(groupDefaultValues, membersForGroup.map((member) => member.id)),
     [groupDefaultValues, membersForGroup],
@@ -299,6 +312,15 @@ function SplitClubApp() {
 
   const setExpenseSplitValue = (memberId, value) => {
     setSplitValues((current) => ({ ...current, [memberId]: value }))
+  }
+
+  const setExpensePayerMode = (mode) => {
+    setPayerMode(mode)
+    setPayerValues(mode === 'multiple' ? payerValuesWithFallback(payerValues, membersForGroup.map((member) => member.id), Number(amount), paidBy) : {})
+  }
+
+  const setExpensePayerValue = (memberId, value) => {
+    setPayerValues((current) => ({ ...current, [memberId]: value }))
   }
 
   const openGroupSettings = () => {
@@ -468,9 +490,14 @@ function SplitClubApp() {
       Alert.alert('Split does not balance', splitPreview.message)
       return
     }
+    if (!payerValidation.valid) {
+      Alert.alert('Payers do not match', payerValidation.message)
+      return
+    }
 
     const participants = membersForGroup.map((member) => member.id)
     const splits = splitMode === 'equal' ? [] : splitPreview.splits
+    const payments = payerMode === 'multiple' ? payerShares.filter((payment) => payment.value > 0) : []
 
     const expense = {
       id: `expense-${Date.now()}`,
@@ -479,6 +506,7 @@ function SplitClubApp() {
       amount: numericAmount,
       currency,
       paidBy: paidBy || participants[0],
+      payments,
       participants,
       splitMode,
       splits: splitMode === 'equal' ? [] : splits,
@@ -970,6 +998,12 @@ function SplitClubApp() {
     setReminderDays,
     paidBy,
     setPaidBy,
+    payerMode,
+    setPayerMode: setExpensePayerMode,
+    payerValues,
+    setExpensePayerValue,
+    payerShares,
+    payerValidation,
     attachmentName,
     setAttachmentName,
     receiptFile,
@@ -1183,6 +1217,10 @@ function valuesToSplits(values, participants) {
   return participants.map((memberId) => ({ memberId, value: roundMoney(Number(values[memberId] || 0)) }))
 }
 
+function payerValuesWithFallback(values, participants, amount, paidBy) {
+  return Object.fromEntries(participants.map((memberId) => [memberId, values[memberId] ?? (memberId === paidBy ? String(roundMoney(amount)) : '0')]))
+}
+
 function defaultValueUnit(splitMode) {
   if (splitMode === 'percent') return 'Percent'
   if (splitMode === 'shares') return 'Shares'
@@ -1259,6 +1297,7 @@ function ExpenseDetailScreen({ state }) {
           <FeatureList
             rows={[
               ['Paid by', state.memberName(expense.paidBy)],
+              ['Payer shares', expense.payments?.length ? expense.payments.map((payment) => `${state.memberName(payment.memberId)} ${expense.currency} ${payment.value.toFixed(2)}`).join(', ') : 'Single payer'],
               ['Participants', expense.participants.map(state.memberName).join(', ')],
               ['Notes', expense.notes ?? 'No notes'],
               ['Attachment', expense.attachmentName ?? 'No attachment'],
@@ -1588,6 +1627,40 @@ function AddExpenseScreen({ state }) {
               <Input value={state.date} onChangeText={state.setDate} placeholder="YYYY-MM-DD" {...inputProps} />
             </YStack>
           </XStack>
+          <Field label="Payer mode">
+            <XStack gap="$1.5" fw="wrap">
+              <Chip label="single" active={state.payerMode === 'single'} onPress={() => state.setPayerMode('single')} />
+              <Chip label="multiple" active={state.payerMode === 'multiple'} onPress={() => state.setPayerMode('multiple')} />
+            </XStack>
+          </Field>
+          {state.payerMode === 'multiple' ? (
+            <YStack gap="$2">
+              <Label>Paid amounts</Label>
+              {state.membersForGroup.map((member) => (
+                <XStack key={member.id} ai="center" gap="$2" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
+                  <YStack flex={1}>
+                    <Text color="#09090b" fontSize={14} fontWeight="900">
+                      {member.name}
+                    </Text>
+                    <Muted>Amount paid</Muted>
+                  </YStack>
+                  <Input
+                    value={state.payerValues[member.id] ?? ''}
+                    onChangeText={(value) => state.setExpensePayerValue(member.id, value)}
+                    keyboardType="decimal-pad"
+                    placeholder="0"
+                    width={112}
+                    {...inputProps}
+                  />
+                </XStack>
+              ))}
+              <YStack bg={state.payerValidation.valid ? '#fafafa' : '#fff1f2'} borderWidth={1} borderColor={state.payerValidation.valid ? '#e4e4e7' : '#fecdd3'} br="$3" p="$3">
+                <SizableText color={state.payerValidation.valid ? '#09090b' : '#be123c'} size="$2" fontWeight="900">
+                  {state.payerValidation.message}
+                </SizableText>
+              </YStack>
+            </YStack>
+          ) : null}
           <Field label="Category">
             <XStack gap="$1.5" fw="wrap">
               {categories.map((category) => (
@@ -2293,7 +2366,7 @@ function ExpenseRow({ expense, onPress }) {
             {expense.description}
           </Text>
           <Muted>
-            {expense.category} · {expense.splitMode} · {expense.date}
+            {expense.category} · {expense.payments?.length ? 'multi-payer' : expense.splitMode} · {expense.date}
           </Muted>
         </YStack>
         <Text color="#09090b" fontSize={14} fontWeight="900">

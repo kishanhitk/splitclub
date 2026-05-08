@@ -152,6 +152,7 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
       ...expense,
       ...input,
       groupId: input.groupId === undefined ? expense.groupId : input.groupId,
+      payments: input.payments ?? expense.payments,
       participants: input.participants ?? expense.participants,
       splits: input.splits ?? expense.splits,
       receiptItems: receiptItems ?? expense.receiptItems,
@@ -307,6 +308,7 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
         amount: input.amount,
         currency: input.currency,
         paidBy: input.paidBy,
+        payments: input.payments,
         participants: input.participants,
         splitMode: input.splitMode,
         splits: input.splits,
@@ -401,6 +403,7 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
         amount: input.amount,
         currency: input.currency,
         paidBy: input.to,
+        payments: [],
         participants: [input.from],
         splitMode: 'exact',
         splits: [{ memberId: input.from, value: input.amount }],
@@ -531,6 +534,11 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
     return result.results.map((row) => ({ memberId: row.user_id, value: row.value }))
   }
 
+  const listPayments = async (expenseId: string) => {
+    const result = await db.prepare('SELECT user_id, value FROM expense_payments WHERE expense_id = ?').bind(expenseId).all<{ user_id: string; value: number }>()
+    return result.results.map((row) => ({ memberId: row.user_id, value: row.value }))
+  }
+
   const listReceiptItems = async (expenseId: string) => {
     const result = await db.prepare('SELECT id, label, amount FROM receipt_items WHERE expense_id = ?').bind(expenseId).all<{ id: string; label: string; amount: number }>()
     return Promise.all(
@@ -580,6 +588,7 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
     amount: row.amount,
     currency: row.currency,
     paidBy: row.paid_by,
+    payments: await listPayments(row.id),
     participants: await listParticipants(row.id),
     splitMode: row.split_mode,
     splits: await listSplits(row.id),
@@ -636,7 +645,8 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
     return db.prepare(`SELECT * FROM expenses WHERE ${clause}`).bind(expenseId).first<ExpenseRow>()
   }
 
-  const replaceExpenseChildren = async (expenseId: string, input: Pick<ExpenseInput, 'participants' | 'splits' | 'receiptItems'>) => {
+  const replaceExpenseChildren = async (expenseId: string, input: Pick<ExpenseInput, 'payments' | 'participants' | 'splits' | 'receiptItems'>) => {
+    await db.prepare('DELETE FROM expense_payments WHERE expense_id = ?').bind(expenseId).run()
     await db.prepare('DELETE FROM expense_participants WHERE expense_id = ?').bind(expenseId).run()
     await db.prepare('DELETE FROM expense_splits WHERE expense_id = ?').bind(expenseId).run()
     const existingItems = await db.prepare('SELECT id FROM receipt_items WHERE expense_id = ?').bind(expenseId).all<{ id: string }>()
@@ -644,6 +654,7 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
       existingItems.results.map((item) => db.prepare('DELETE FROM receipt_item_assignments WHERE receipt_item_id = ?').bind(item.id).run()),
     )
     await db.prepare('DELETE FROM receipt_items WHERE expense_id = ?').bind(expenseId).run()
+    await Promise.all(input.payments.map((payment) => db.prepare('INSERT INTO expense_payments (expense_id, user_id, value) VALUES (?, ?, ?)').bind(expenseId, payment.memberId, payment.value).run()))
     await Promise.all(input.participants.map((memberId) => db.prepare('INSERT INTO expense_participants (expense_id, user_id) VALUES (?, ?)').bind(expenseId, memberId).run()))
     await Promise.all(input.splits.map((split) => db.prepare('INSERT INTO expense_splits (expense_id, user_id, value) VALUES (?, ?, ?)').bind(expenseId, split.memberId, split.value).run()))
     for (const item of input.receiptItems) {
@@ -926,6 +937,7 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
           input.paymentStatus,
         )
         .run()
+      await Promise.all(input.payments.map((payment) => db.prepare('INSERT INTO expense_payments (expense_id, user_id, value) VALUES (?, ?, ?)').bind(expenseId, payment.memberId, payment.value).run()))
       await Promise.all(input.participants.map((memberId) => db.prepare('INSERT INTO expense_participants (expense_id, user_id) VALUES (?, ?)').bind(expenseId, memberId).run()))
       await Promise.all(input.splits.map((split) => db.prepare('INSERT INTO expense_splits (expense_id, user_id, value) VALUES (?, ?, ?)').bind(expenseId, split.memberId, split.value).run()))
       for (const item of input.receiptItems) {
@@ -952,6 +964,7 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
         amount: input.amount ?? existing.amount,
         currency: input.currency ?? existing.currency,
         paidBy: input.paidBy ?? existing.paidBy,
+        payments: input.payments ?? existing.payments ?? [],
         participants: input.participants ?? existing.participants,
         splitMode: input.splitMode ?? existing.splitMode,
         splits: input.splits ?? existing.splits,
@@ -1049,6 +1062,7 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
         amount: input.amount,
         currency: input.currency,
         paidBy: input.to,
+        payments: [],
         participants: [input.from],
         splitMode: 'exact',
         splits: [{ memberId: input.from, value: input.amount }],

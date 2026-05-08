@@ -49,6 +49,7 @@ export type Expense = {
   amount: number
   currency: string
   paidBy: string
+  payments?: SplitShare[]
   participants: string[]
   splitMode: SplitMode
   splits: SplitShare[]
@@ -318,7 +319,15 @@ export function calculateBalances(ledger: Ledger, groupId?: string | null, curre
       continue
     }
 
-    balances.set(expense.paidBy, (balances.get(expense.paidBy) ?? 0) + amount)
+    const paymentShares = expense.payments?.length
+      ? expense.payments.map((payment) => ({
+          memberId: payment.memberId,
+          amount: convertAmount(payment.value, expense.currency, currency, ledger.exchangeRates),
+        }))
+      : [{ memberId: expense.paidBy, amount }]
+    for (const payment of paymentShares) {
+      balances.set(payment.memberId, (balances.get(payment.memberId) ?? 0) + payment.amount)
+    }
     for (const share of calculateOwedShares(normalized)) {
       balances.set(share.memberId, (balances.get(share.memberId) ?? 0) - share.amount)
     }
@@ -335,7 +344,7 @@ export function listExpenseViewers(ledger: Ledger, expense: Expense): string[] {
     const group = ledger.groups.find((candidate) => candidate.id === expense.groupId)
     return group?.memberIds ?? []
   }
-  return Array.from(new Set([expense.paidBy, ...expense.participants]))
+  return Array.from(new Set([expense.paidBy, ...(expense.payments ?? []).map((payment) => payment.memberId), ...expense.participants]))
 }
 
 export function canMemberSeeExpense(ledger: Ledger, expense: Expense, memberId: string) {
@@ -459,7 +468,7 @@ export function spendingTrend(ledger: Ledger, groupId?: string | null, currency 
 }
 
 export function exportCsv(ledger: Ledger) {
-  const header = ['date', 'description', 'category', 'amount', 'currency', 'paid_by', 'participants', 'group_id', 'kind', 'split_mode', 'payment_method', 'payment_status', 'payment_reference', 'notes']
+  const header = ['date', 'description', 'category', 'amount', 'currency', 'paid_by', 'payer_shares', 'participants', 'group_id', 'kind', 'split_mode', 'payment_method', 'payment_status', 'payment_reference', 'notes']
   const rows = ledger.expenses.filter((expense) => !expense.deletedAt).map((expense) =>
     [
       expense.date,
@@ -468,6 +477,7 @@ export function exportCsv(ledger: Ledger) {
       expense.amount.toFixed(2),
       expense.currency,
       expense.paidBy,
+      expense.payments?.length ? expense.payments.map((payment) => `${payment.memberId}:${payment.value.toFixed(2)}`).join('|') : '',
       expense.participants.join('|'),
       expense.groupId ?? 'non-group',
       expense.kind,
