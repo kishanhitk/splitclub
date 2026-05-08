@@ -624,6 +624,31 @@ export function createApp() {
     return c.json({ receipt: updated, extractedItems: extraction.items })
   })
 
+  app.get('/api/recurring', async (c) => {
+    const store = getStore(c.env)
+    const member = currentMember(c.get('authMember'))
+    const schedules = await store.listRecurringSchedules(member.id, c.req.query('asOf'))
+    return c.json({ schedules })
+  })
+
+  app.post('/api/recurring/:id/post', async (c) => {
+    const store = getStore(c.env)
+    const member = currentMember(c.get('authMember'))
+    await requireExpenseAccess(store, member.id, c.req.param('id'))
+    const result = await store.postRecurringOccurrence(c.req.param('id'), member.id)
+    await c.env.SYNC_QUEUE?.send({ type: 'recurring.posted', sourceExpenseId: c.req.param('id'), occurrenceExpenseId: result.occurrence.id, dueDate: result.event.dueDate, createdAt: new Date().toISOString() })
+    return c.json(result, 201)
+  })
+
+  app.post('/api/recurring/:id/skip', async (c) => {
+    const store = getStore(c.env)
+    const member = currentMember(c.get('authMember'))
+    await requireExpenseAccess(store, member.id, c.req.param('id'))
+    const result = await store.skipRecurringOccurrence(c.req.param('id'), member.id)
+    await c.env.SYNC_QUEUE?.send({ type: 'recurring.skipped', sourceExpenseId: c.req.param('id'), dueDate: result.event.dueDate, createdAt: new Date().toISOString() })
+    return c.json(result)
+  })
+
   app.get('/api/search', async (c) => {
     const query = searchSchema.parse({
       q: c.req.query('q') ?? '',
