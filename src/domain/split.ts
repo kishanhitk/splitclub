@@ -165,17 +165,26 @@ export type LedgerMergeSummary = {
   localMembersPreserved: number
   localGroupsPreserved: number
   localExpensesPreserved: number
+  memberConflicts: number
+  groupConflicts: number
+  expenseConflicts: number
 }
 
 export const roundMoney = (amount: number) => Math.round((amount + Number.EPSILON) * 100) / 100
 
 function mergeById<T extends { id: string }>(localItems: T[], remoteItems: T[]) {
   const remoteIds = new Set(remoteItems.map((item) => item.id))
+  const localById = new Map(localItems.map((item) => [item.id, item]))
   const preserved = localItems.filter((item) => !remoteIds.has(item.id))
+  const conflicts = remoteItems.filter((item) => {
+    const local = localById.get(item.id)
+    return local !== undefined && JSON.stringify(local) !== JSON.stringify(item)
+  })
   return {
     items: [...remoteItems, ...preserved],
-    added: remoteItems.filter((item) => !localItems.some((local) => local.id === item.id)).length,
+    added: remoteItems.filter((item) => !localById.has(item.id)).length,
     preserved: preserved.length,
+    conflicts: conflicts.length,
   }
 }
 
@@ -200,6 +209,9 @@ export function mergeLedgers(localLedger: Ledger, remoteLedger: Ledger): { ledge
       localMembersPreserved: members.preserved,
       localGroupsPreserved: groups.preserved,
       localExpensesPreserved: expenses.preserved,
+      memberConflicts: members.conflicts,
+      groupConflicts: groups.conflicts,
+      expenseConflicts: expenses.conflicts,
     },
   }
 }

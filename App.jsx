@@ -2683,6 +2683,7 @@ function ToolsScreen({ state }) {
               rows={[
                 ['Remote adds', `${state.lastCloudSync.membersAdded} members · ${state.lastCloudSync.groupsAdded} groups · ${state.lastCloudSync.expensesAdded} expenses`],
                 ['Local kept', `${state.lastCloudSync.localMembersPreserved} members · ${state.lastCloudSync.localGroupsPreserved} groups · ${state.lastCloudSync.localExpensesPreserved} expenses`],
+                ['Conflicts', `${state.lastCloudSync.memberConflicts} members · ${state.lastCloudSync.groupConflicts} groups · ${state.lastCloudSync.expenseConflicts} expenses`],
               ]}
             />
           ) : null}
