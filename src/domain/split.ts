@@ -213,14 +213,45 @@ export function searchExpenses(ledger: Ledger, query: string) {
   const normalized = query.trim().toLowerCase()
   if (!normalized) return ledger.expenses
   return ledger.expenses.filter((expense) => {
-    return [expense.description, expense.category, expense.notes, expense.currency, expense.attachmentName]
+    const group = ledger.groups.find((candidate) => candidate.id === expense.groupId)
+    const people = [expense.paidBy, ...expense.participants]
+      .map((memberId) => ledger.members.find((member) => member.id === memberId)?.name)
+      .filter(Boolean)
+    return [
+      expense.description,
+      expense.category,
+      expense.notes,
+      expense.currency,
+      expense.attachmentName,
+      expense.date,
+      expense.amount.toFixed(2),
+      expense.amount.toFixed(0),
+      expense.kind,
+      expense.splitMode,
+      group?.name,
+      ...people,
+    ]
       .filter(Boolean)
       .some((value) => value?.toLowerCase().includes(normalized))
   })
 }
 
+export function spendingTrend(ledger: Ledger, groupId?: string | null, currency = ledger.defaultCurrency) {
+  const totals = new Map<string, number>()
+  for (const expense of ledger.expenses) {
+    if (expense.kind === 'settlement') continue
+    if (groupId !== undefined && expense.groupId !== groupId) continue
+    const month = expense.date.slice(0, 7)
+    const amount = convertAmount(expense.amount, expense.currency, currency, ledger.exchangeRates)
+    totals.set(month, roundMoney((totals.get(month) ?? 0) + amount))
+  }
+  return Array.from(totals.entries())
+    .map(([month, amount]) => ({ month, amount }))
+    .sort((a, b) => a.month.localeCompare(b.month))
+}
+
 export function exportCsv(ledger: Ledger) {
-  const header = ['date', 'description', 'category', 'amount', 'currency', 'paid_by', 'group_id', 'kind']
+  const header = ['date', 'description', 'category', 'amount', 'currency', 'paid_by', 'participants', 'group_id', 'kind', 'split_mode', 'notes']
   const rows = ledger.expenses.map((expense) =>
     [
       expense.date,
@@ -229,8 +260,11 @@ export function exportCsv(ledger: Ledger) {
       expense.amount.toFixed(2),
       expense.currency,
       expense.paidBy,
+      expense.participants.join('|'),
       expense.groupId ?? 'non-group',
       expense.kind,
+      expense.splitMode,
+      expense.notes ?? '',
     ]
       .map((value) => `"${String(value).replaceAll('"', '""')}"`)
       .join(','),

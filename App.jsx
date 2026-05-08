@@ -28,6 +28,7 @@ import {
   searchExpenses,
   simplifyDebts,
   spendingByCategory,
+  spendingTrend,
 } from './src/domain/split'
 import { loadLedger, resetLedger, saveLedger } from './src/storage/offline'
 import { tamaguiConfig } from './tamagui.config'
@@ -113,6 +114,10 @@ function SplitClubApp() {
   const settlements = useMemo(() => simplifyDebts(balances, currency), [balances, currency])
   const categoryTotals = useMemo(
     () => spendingByCategory(ledger, selectedGroupId, currency).slice(0, 5),
+    [ledger, selectedGroupId, currency],
+  )
+  const trendTotals = useMemo(
+    () => spendingTrend(ledger, selectedGroupId, currency),
     [ledger, selectedGroupId, currency],
   )
   const totalSpending = categoryTotals.reduce((sum, item) => sum + item.amount, 0)
@@ -365,6 +370,7 @@ function SplitClubApp() {
     balances,
     settlements,
     categoryTotals,
+    trendTotals,
     totalSpending,
     memberName,
     addExpense,
@@ -872,6 +878,36 @@ function SettingsScreen({ state }) {
             </SizableText>
           </XStack>
         ))}
+      </Panel>
+
+      <Panel title="Trend over time">
+        <YStack gap="$2">
+          <Field label="Report currency">
+            <XStack gap="$1.5" fw="wrap">
+              {currencies.map((code) => (
+                <Chip key={code} label={code} active={state.currency === code} onPress={() => state.setCurrency(code)} />
+              ))}
+            </XStack>
+          </Field>
+          {state.trendTotals.map((item) => (
+            <XStack key={item.month} ai="center" gap="$2">
+              <SizableText color="#3f3f46" size="$2" fontWeight="900" w={82}>
+                {item.month}
+              </SizableText>
+              <YStack bg="#e4e4e7" br={999} flex={1} h={10} overflow="hidden">
+                <YStack
+                  bg="#09090b"
+                  br={999}
+                  h={10}
+                  width={`${Math.max((item.amount / Math.max(...state.trendTotals.map((trend) => trend.amount), 1)) * 100, 8)}%`}
+                />
+              </YStack>
+              <SizableText color="#09090b" size="$2" fontWeight="900" ta="right" w={72}>
+                {state.currency} {item.amount.toFixed(0)}
+              </SizableText>
+            </XStack>
+          ))}
+        </YStack>
       </Panel>
 
       <Panel title="Tools">
