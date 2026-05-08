@@ -3,6 +3,7 @@ import { seedLedger } from '../data/seed'
 import {
   applyGroupDefaultSplits,
   calculateBalances,
+  calculateFriendBalanceSummaries,
   calculateOwedShares,
   canMemberSeeBalance,
   canMemberSeeExpense,
@@ -70,6 +71,25 @@ describe('split engine', () => {
     const settlements = simplifyDebts(calculateBalances(seedLedger, 'goa', 'INR'), 'INR')
     expect(settlements).toHaveLength(3)
     expect(settlements[0]).toMatchObject({ to: 'kishan', currency: 'INR' })
+  })
+
+  test('summarizes friend balances across groups and private expenses', () => {
+    const summaries = calculateFriendBalanceSummaries(seedLedger, 'kishan', 'INR')
+    const byFriend = new Map(summaries.map((summary) => [summary.friendId, summary]))
+
+    expect(byFriend.get('dev')?.amount).toBe(-9000)
+    expect(byFriend.get('dev')?.breakdown).toEqual([
+      { scopeId: 'flat', scopeName: 'Apartment', amount: -15000, currency: 'INR' },
+      { scopeId: 'goa', scopeName: 'Goa long weekend', amount: 6000, currency: 'INR' },
+    ])
+    expect(byFriend.get('mia')?.amount).toBe(5250)
+    expect(byFriend.get('mia')?.breakdown).toContainEqual({
+      scopeId: null,
+      scopeName: 'Private expenses',
+      amount: -750,
+      currency: 'INR',
+    })
+    expect(byFriend.get('anya')?.amount).toBe(4300)
   })
 
   test('finds expenses by notes, category, and currency', () => {

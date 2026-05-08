@@ -141,6 +141,16 @@ describe('SplitClub Worker API', () => {
   test('calculates balances and records settlements', async () => {
     const env = createEnv()
 
+    const friendBalancesResponse = await request('/api/friends/balances?currency=INR', {}, env)
+    const friendBalancesBody = (await friendBalancesResponse.json()) as {
+      balances: Array<{ friendId: string; amount: number; breakdown: Array<{ scopeName: string }> }>
+    }
+    expect(friendBalancesResponse.status).toBe(200)
+    expect(friendBalancesBody.balances.find((balance) => balance.friendId === 'dev')).toMatchObject({
+      amount: -9000,
+      breakdown: [{ scopeName: 'Apartment' }, { scopeName: 'Goa long weekend' }],
+    })
+
     const balancesResponse = await request('/api/groups/goa/balances?currency=INR', {}, env)
     const balancesBody = (await balancesResponse.json()) as { settlements: Array<{ to: string }> }
     expect(balancesResponse.status).toBe(200)
