@@ -501,6 +501,49 @@ describe('SplitClub Worker API', () => {
     })
   })
 
+  test('rejects stale expense pushes with conflict details', async () => {
+    const env = createEnv()
+
+    const initialResponse = await request('/api/expenses/e1', {}, env)
+    const initialBody = (await initialResponse.json()) as { expense: { updatedAt?: string; date: string } }
+    const baseRevision = initialBody.expense.updatedAt ?? initialBody.expense.date
+
+    const firstUpdateResponse = await request(
+      '/api/expenses/e1',
+      {
+        method: 'PUT',
+        headers: { 'x-splitclub-base-revision': baseRevision },
+        body: JSON.stringify({ description: 'Beach villa final' }),
+      },
+      env,
+    )
+    const firstUpdateBody = (await firstUpdateResponse.json()) as { expense: { updatedAt?: string } }
+    expect(firstUpdateResponse.status).toBe(200)
+    expect(firstUpdateBody.expense.updatedAt).toBeTruthy()
+
+    const staleUpdateResponse = await request(
+      '/api/expenses/e1',
+      {
+        method: 'PUT',
+        headers: { 'x-splitclub-base-revision': baseRevision },
+        body: JSON.stringify({ amount: 25000 }),
+      },
+      env,
+    )
+    const staleUpdateBody = (await staleUpdateResponse.json()) as { error: string; conflict: { baseRevision: string; currentRevision?: string; recordId: string } }
+    expect(staleUpdateResponse.status).toBe(409)
+    expect(staleUpdateBody.error).toBe('expense_conflict')
+    expect(staleUpdateBody.conflict).toMatchObject({ recordId: 'e1', baseRevision })
+    expect(staleUpdateBody.conflict.currentRevision).not.toBe(baseRevision)
+
+    const staleDeleteResponse = await request(
+      '/api/expenses/e1',
+      { method: 'DELETE', headers: { 'if-unmodified-since': baseRevision } },
+      env,
+    )
+    expect(staleDeleteResponse.status).toBe(409)
+  })
+
   test('exposes sync payload and validation errors', async () => {
     const env = createEnv()
 

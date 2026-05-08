@@ -578,17 +578,31 @@ function SplitClubApp() {
     setSyncState('Signed out')
   }
 
-  const pushCloudJson = async (path, payload, label, method = 'POST') => {
+  const pushCloudJson = async (path, payload, label, method = 'POST', options = {}) => {
     if (!cloudSyncReady) return
     try {
       const response = await fetch(`${cloudApiUrl}${path}`, {
         method,
         headers: {
           ...sessionHeaders(authSession),
+          ...(options.baseRevision ? { 'x-splitclub-base-revision': options.baseRevision } : {}),
           ...(payload === undefined ? {} : { 'content-type': 'application/json' }),
         },
         body: payload === undefined ? undefined : JSON.stringify(payload),
       })
+      if (response.status === 409) {
+        const body = await response.json().catch(() => ({}))
+        setLastCloudPush({
+          at: new Date().toISOString(),
+          label,
+          path,
+          status: 'conflict',
+          message: body.message ?? 'Cloud copy changed before your push.',
+          conflict: body.conflict,
+        })
+        setSyncState(`${label} has a cloud conflict`)
+        return
+      }
       if (!response.ok) {
         throw new Error(`Worker returned ${response.status}`)
       }
@@ -686,6 +700,7 @@ function SplitClubApp() {
     const participants = membersForGroup.map((member) => member.id)
     const splits = splitMode === 'equal' ? [] : splitPreview.splits
     const payments = payerMode === 'multiple' ? payerShares.filter((payment) => payment.value > 0) : []
+    const updatedAt = new Date().toISOString()
 
     const expense = {
       id: `expense-${Date.now()}`,
@@ -712,6 +727,7 @@ function SplitClubApp() {
       reminderDays: recurrence === 'none' ? undefined : Number(reminderDays || 0),
       comments: [],
       history: [],
+      updatedAt,
     }
     expense.history = [lifecycleEvent(expense.id, 'created', `${activeUser.name} created this expense`)]
 
@@ -733,6 +749,8 @@ function SplitClubApp() {
       description: detailDescription.trim(),
       amount: roundMoney(numericAmount),
     }
+    const baseRevision = expenseRevision(selectedExpense)
+    const updatedAt = new Date().toISOString()
     setLedger((current) => ({
       ...current,
       expenses: current.expenses.map((expense) =>
@@ -740,6 +758,7 @@ function SplitClubApp() {
           ? {
               ...expense,
               ...updatePayload,
+              updatedAt,
               history: [
                 lifecycleEvent(expense.id, 'updated', `${activeUser.name} updated description or amount`),
                 ...(expense.history ?? []),
@@ -749,7 +768,7 @@ function SplitClubApp() {
       ),
     }))
     setSyncState('Expense updated')
-    pushCloudJson(`/api/expenses/${selectedExpense.id}`, updatePayload, 'Expense edit', 'PUT').catch(() => undefined)
+    pushCloudJson(`/api/expenses/${selectedExpense.id}`, updatePayload, 'Expense edit', 'PUT', { baseRevision }).catch(() => undefined)
   }
 
   const addExpenseComment = () => {
@@ -784,6 +803,7 @@ function SplitClubApp() {
   const deleteSelectedExpense = () => {
     if (!selectedExpense) return
     const deletedAt = new Date().toISOString()
+    const baseRevision = expenseRevision(selectedExpense)
     setLedger((current) => ({
       ...current,
       expenses: current.expenses.map((expense) =>
@@ -791,6 +811,7 @@ function SplitClubApp() {
           ? {
               ...expense,
               deletedAt,
+              updatedAt: deletedAt,
               history: [
                 lifecycleEvent(expense.id, 'deleted', `${activeUser.name} deleted this expense`),
                 ...(expense.history ?? []),
@@ -800,11 +821,13 @@ function SplitClubApp() {
       ),
     }))
     setSyncState('Expense deleted')
-    pushCloudJson(`/api/expenses/${selectedExpense.id}`, undefined, 'Expense delete', 'DELETE').catch(() => undefined)
+    pushCloudJson(`/api/expenses/${selectedExpense.id}`, undefined, 'Expense delete', 'DELETE', { baseRevision }).catch(() => undefined)
   }
 
   const restoreSelectedExpense = () => {
     if (!selectedExpense) return
+    const baseRevision = expenseRevision(selectedExpense)
+    const updatedAt = new Date().toISOString()
     setLedger((current) => ({
       ...current,
       expenses: current.expenses.map((expense) =>
@@ -812,6 +835,7 @@ function SplitClubApp() {
           ? {
               ...expense,
               deletedAt: undefined,
+              updatedAt,
               history: [
                 lifecycleEvent(expense.id, 'restored', `${activeUser.name} restored this expense`),
                 ...(expense.history ?? []),
@@ -821,7 +845,7 @@ function SplitClubApp() {
       ),
     }))
     setSyncState('Expense restored')
-    pushCloudJson(`/api/expenses/${selectedExpense.id}/restore`, {}, 'Expense restore').catch(() => undefined)
+    pushCloudJson(`/api/expenses/${selectedExpense.id}/restore`, {}, 'Expense restore', 'POST', { baseRevision }).catch(() => undefined)
   }
 
   const deleteSelectedGroup = () => {
@@ -1260,20 +1284,22 @@ function SplitClubApp() {
       createdAt: new Date().toISOString(),
       actorId: activeUser.id,
     })
+    const sourceBaseRevision = expenseRevision(source)
+    const sourceUpdatedAt = new Date().toISOString()
 
     setLedger((current) => ({
       ...current,
       expenses: [
         occurrence,
         ...current.expenses.map((expense) =>
-          expense.id === sourceExpenseId ? { ...expense, date: upcoming.dueDate } : expense,
+          expense.id === sourceExpenseId ? { ...expense, date: upcoming.dueDate, updatedAt: sourceUpdatedAt } : expense,
         ),
       ],
     }))
     cancelReminderForExpense(sourceExpenseId).catch(() => undefined)
     setSyncState('Recurring bill posted')
     pushCloudJson('/api/expenses', occurrence, 'Recurring bill').catch(() => undefined)
-    pushCloudJson(`/api/expenses/${sourceExpenseId}`, { date: upcoming.dueDate }, 'Recurring schedule', 'PUT').catch(() => undefined)
+    pushCloudJson(`/api/expenses/${sourceExpenseId}`, { date: upcoming.dueDate }, 'Recurring schedule', 'PUT', { baseRevision: sourceBaseRevision }).catch(() => undefined)
   }
 
   const cancelRecurring = (sourceExpenseId) => {
@@ -1925,6 +1951,10 @@ function downloadTextFile(fileName, contents, mimeType) {
 
 function replaceRecord(records, nextRecord) {
   return records.map((record) => (record.id === nextRecord.id ? nextRecord : record))
+}
+
+function expenseRevision(expense) {
+  return expense?.updatedAt ?? expense?.deletedAt ?? expense?.history?.[0]?.createdAt ?? expense?.date
 }
 
 function syncSummaryWithConflicts(summary, conflicts) {
