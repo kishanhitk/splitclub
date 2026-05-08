@@ -88,6 +88,13 @@ const groupViews = [
   { id: 'friends', label: 'Friends' },
   { id: 'invites', label: 'Invites' },
 ]
+const addExpenseSteps = [
+  { id: 'basics', label: 'Basics' },
+  { id: 'payers', label: 'Payers' },
+  { id: 'split', label: 'Split' },
+  { id: 'receipt', label: 'Receipt' },
+  { id: 'review', label: 'Review' },
+]
 
 const navItems = [
   { id: 'activity', label: 'Activity', icon: ReceiptText },
@@ -125,6 +132,7 @@ function SplitClubApp() {
   const [commentDraft, setCommentDraft] = useState('Looks good to me.')
   const [detailDescription, setDetailDescription] = useState('')
   const [detailAmount, setDetailAmount] = useState('')
+  const [addExpenseStep, setAddExpenseStep] = useState('basics')
   const [splitMode, setSplitMode] = useState('equal')
   const [splitValues, setSplitValues] = useState({})
   const [amount, setAmount] = useState('3600')
@@ -1141,6 +1149,8 @@ function SplitClubApp() {
     detailAmount,
     setDetailAmount,
     updateSelectedExpense,
+    addExpenseStep,
+    setAddExpenseStep,
     addExpenseComment,
     deleteSelectedExpense,
     restoreSelectedExpense,
@@ -1827,166 +1837,186 @@ function GroupSettingsScreen({ state }) {
 function AddExpenseScreen({ state }) {
   return (
     <>
-      <Panel title="New expense">
-        <YStack gap="$3">
-          <Field label="Type">
-            <XStack gap="$1.5" fw="wrap">
-              {expenseKinds.map((kind) => (
-                <Chip key={kind} label={kind} active={state.expenseKind === kind} onPress={() => state.setExpenseKind(kind)} />
-              ))}
-            </XStack>
-          </Field>
-          <Field label="Description">
-            <Input value={state.description} onChangeText={state.setDescription} placeholder="What was this for?" {...inputProps} />
-          </Field>
-          <XStack gap="$2" fw="wrap">
-            <YStack flex={1} minWidth={180} gap="$2">
-              <Label>Amount</Label>
-              <Input value={state.amount} onChangeText={state.setAmount} keyboardType="decimal-pad" placeholder="0.00" {...inputProps} />
-            </YStack>
-            <YStack flex={1} minWidth={180} gap="$2">
-              <Label>Currency</Label>
+      <Panel title="Expense flow">
+        <XStack gap="$1.5" fw="wrap">
+          {addExpenseSteps.map((step) => (
+            <Chip key={step.id} label={step.label} active={state.addExpenseStep === step.id} onPress={() => state.setAddExpenseStep(step.id)} />
+          ))}
+        </XStack>
+      </Panel>
+
+      {state.addExpenseStep === 'basics' ? (
+        <Panel title="Basics">
+          <YStack gap="$3">
+            <Field label="Type">
               <XStack gap="$1.5" fw="wrap">
-                {currencies.map((code) => (
-                  <Chip key={code} label={code} active={state.currency === code} onPress={() => state.setCurrency(code)} />
+                {expenseKinds.map((kind) => (
+                  <Chip key={kind} label={kind} active={state.expenseKind === kind} onPress={() => state.setExpenseKind(kind)} />
                 ))}
               </XStack>
-            </YStack>
-          </XStack>
-          <XStack gap="$2" fw="wrap">
-            <YStack flex={1} minWidth={180} gap="$2">
-              <Label>Paid by</Label>
+            </Field>
+            <Field label="Description">
+              <Input value={state.description} onChangeText={state.setDescription} placeholder="What was this for?" {...inputProps} />
+            </Field>
+            <XStack gap="$2" fw="wrap">
+              <YStack flex={1} minWidth={180} gap="$2">
+                <Label>Amount</Label>
+                <Input value={state.amount} onChangeText={state.setAmount} keyboardType="decimal-pad" placeholder="0.00" {...inputProps} />
+              </YStack>
+              <YStack flex={1} minWidth={180} gap="$2">
+                <Label>Currency</Label>
+                <XStack gap="$1.5" fw="wrap">
+                  {currencies.map((code) => (
+                    <Chip key={code} label={code} active={state.currency === code} onPress={() => state.setCurrency(code)} />
+                  ))}
+                </XStack>
+              </YStack>
+            </XStack>
+            <Field label="Category">
+              <XStack gap="$1.5" fw="wrap">
+                {categories.map((category) => (
+                  <Chip key={category} label={category} active={state.category === category} onPress={() => state.setCategory(category)} />
+                ))}
+              </XStack>
+            </Field>
+            <Field label="Date">
+              <Input value={state.date} onChangeText={state.setDate} placeholder="YYYY-MM-DD" {...inputProps} />
+            </Field>
+            <Field label="Recurring bill">
+              <XStack gap="$1.5" fw="wrap">
+                {recurrenceOptions.map((option) => (
+                  <Chip key={option} label={option} active={state.recurrence === option} onPress={() => state.setRecurrence(option)} />
+                ))}
+              </XStack>
+            </Field>
+            {state.recurrence !== 'none' ? (
+              <Field label="Reminder days before due date">
+                <Input value={state.reminderDays} onChangeText={state.setReminderDays} keyboardType="number-pad" placeholder="3" {...inputProps} />
+              </Field>
+            ) : null}
+            <Field label="Notes">
+              <Input value={state.notes} onChangeText={state.setNotes} placeholder="Internal note, memo, or reminder context" {...inputProps} />
+            </Field>
+          </YStack>
+        </Panel>
+      ) : null}
+
+      {state.addExpenseStep === 'payers' ? (
+        <Panel title="Payers">
+          <YStack gap="$3">
+            <Field label="Paid by">
               <XStack gap="$1.5" fw="wrap">
                 {state.membersForGroup.map((member) => (
                   <Chip key={member.id} label={member.name} active={state.paidBy === member.id} onPress={() => state.setPaidBy(member.id)} />
                 ))}
               </XStack>
-            </YStack>
-            <YStack flex={1} minWidth={180} gap="$2">
-              <Label>Date</Label>
-              <Input value={state.date} onChangeText={state.setDate} placeholder="YYYY-MM-DD" {...inputProps} />
-            </YStack>
-          </XStack>
-          <Field label="Payer mode">
-            <XStack gap="$1.5" fw="wrap">
-              <Chip label="single" active={state.payerMode === 'single'} onPress={() => state.setPayerMode('single')} />
-              <Chip label="multiple" active={state.payerMode === 'multiple'} onPress={() => state.setPayerMode('multiple')} />
-            </XStack>
-          </Field>
-          {state.payerMode === 'multiple' ? (
-            <YStack gap="$2">
-              <Label>Paid amounts</Label>
-              {state.membersForGroup.map((member) => (
-                <XStack key={member.id} ai="center" gap="$2" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
-                  <YStack flex={1}>
-                    <Text color="#09090b" fontSize={14} fontWeight="900">
-                      {member.name}
-                    </Text>
-                    <Muted>Amount paid</Muted>
-                  </YStack>
-                  <Input
-                    value={state.payerValues[member.id] ?? ''}
-                    onChangeText={(value) => state.setExpensePayerValue(member.id, value)}
-                    keyboardType="decimal-pad"
-                    placeholder="0"
-                    width={112}
-                    {...inputProps}
-                  />
-                </XStack>
-              ))}
-              <YStack bg={state.payerValidation.valid ? '#fafafa' : '#fff1f2'} borderWidth={1} borderColor={state.payerValidation.valid ? '#e4e4e7' : '#fecdd3'} br="$3" p="$3">
-                <SizableText color={state.payerValidation.valid ? '#09090b' : '#be123c'} size="$2" fontWeight="900">
-                  {state.payerValidation.message}
-                </SizableText>
+            </Field>
+            <Field label="Payer mode">
+              <XStack gap="$1.5" fw="wrap">
+                <Chip label="single" active={state.payerMode === 'single'} onPress={() => state.setPayerMode('single')} />
+                <Chip label="multiple" active={state.payerMode === 'multiple'} onPress={() => state.setPayerMode('multiple')} />
+              </XStack>
+            </Field>
+            {state.payerMode === 'multiple' ? (
+              <YStack gap="$2">
+                <Label>Paid amounts</Label>
+                {state.membersForGroup.map((member) => (
+                  <XStack key={member.id} ai="center" gap="$2" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
+                    <YStack flex={1}>
+                      <Text color="#09090b" fontSize={14} fontWeight="900">
+                        {member.name}
+                      </Text>
+                      <Muted>Amount paid</Muted>
+                    </YStack>
+                    <Input
+                      value={state.payerValues[member.id] ?? ''}
+                      onChangeText={(value) => state.setExpensePayerValue(member.id, value)}
+                      keyboardType="decimal-pad"
+                      placeholder="0"
+                      width={112}
+                      {...inputProps}
+                    />
+                  </XStack>
+                ))}
               </YStack>
-            </YStack>
-          ) : null}
-          <Field label="Category">
-            <XStack gap="$1.5" fw="wrap">
-              {categories.map((category) => (
-                <Chip key={category} label={category} active={state.category === category} onPress={() => state.setCategory(category)} />
-              ))}
-            </XStack>
-          </Field>
-          <Field label="Split method">
-            <XStack gap="$1.5" fw="wrap">
-              {splitModes.map((mode) => (
-                <Chip key={mode} label={mode} active={state.splitMode === mode} onPress={() => state.setSplitMode(mode)} />
-              ))}
-            </XStack>
-          </Field>
-          {state.selectedGroup ? (
-            <SecondaryButton icon={<RefreshCcw size={16} color="#09090b" />} label="Use group defaults" onPress={() => state.applyGroupDefaultsToExpense()} />
-          ) : null}
-          {state.splitMode !== 'equal' ? (
-            <YStack gap="$2">
-              <Label>Split values</Label>
-              {state.membersForGroup.map((member) => (
-                <XStack key={member.id} ai="center" gap="$2" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
-                  <YStack flex={1}>
-                    <Text color="#09090b" fontSize={14} fontWeight="900">
-                      {member.name}
-                    </Text>
-                    <Muted>{defaultValueUnit(state.splitMode)}</Muted>
-                  </YStack>
-                  <Input
-                    value={state.splitValues[member.id] ?? ''}
-                    onChangeText={(value) => state.setExpenseSplitValue(member.id, value)}
-                    keyboardType="decimal-pad"
-                    placeholder="0"
-                    width={112}
-                    {...inputProps}
-                  />
-                </XStack>
-              ))}
-            </YStack>
-          ) : null}
-          <YStack bg="#f4f4f5" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3" gap="$2">
-            <Label>Participants</Label>
-            <XStack fw="wrap" gap="$2">
-              {state.membersForGroup.map((member) => (
-                <SizableText key={member.id} color="#18181b" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br={999} px="$3" py="$2" size="$2" fontWeight="800">
-                  {member.name}
-                </SizableText>
-              ))}
-            </XStack>
-          </YStack>
-          <YStack bg={state.splitPreview.valid ? '#fafafa' : '#fff1f2'} borderWidth={1} borderColor={state.splitPreview.valid ? '#e4e4e7' : '#fecdd3'} br="$3" p="$3" gap="$2">
-            <XStack ai="center" jc="space-between">
-              <Label>Split validation</Label>
-              <SizableText color={state.splitPreview.valid ? '#09090b' : '#be123c'} size="$2" fontWeight="900">
-                {state.splitPreview.message}
+            ) : null}
+            <YStack bg={state.payerValidation.valid ? '#fafafa' : '#fff1f2'} borderWidth={1} borderColor={state.payerValidation.valid ? '#e4e4e7' : '#fecdd3'} br="$3" p="$3">
+              <SizableText color={state.payerValidation.valid ? '#09090b' : '#be123c'} size="$2" fontWeight="900">
+                {state.payerValidation.message}
               </SizableText>
-            </XStack>
-            {state.splitPreview.preview.map((share) => (
-              <XStack key={share.memberId} jc="space-between">
-                <Muted>{state.memberName(share.memberId)}</Muted>
-                <SizableText color="#09090b" size="$2" fontWeight="900">
-                  {state.currency} {share.amount.toFixed(2)}
+            </YStack>
+          </YStack>
+        </Panel>
+      ) : null}
+
+      {state.addExpenseStep === 'split' ? (
+        <Panel title="Split">
+          <YStack gap="$3">
+            <Field label="Split method">
+              <XStack gap="$1.5" fw="wrap">
+                {splitModes.map((mode) => (
+                  <Chip key={mode} label={mode} active={state.splitMode === mode} onPress={() => state.setSplitMode(mode)} />
+                ))}
+              </XStack>
+            </Field>
+            {state.selectedGroup ? (
+              <SecondaryButton icon={<RefreshCcw size={16} color="#09090b" />} label="Use group defaults" onPress={() => state.applyGroupDefaultsToExpense()} />
+            ) : null}
+            {state.splitMode !== 'equal' ? (
+              <YStack gap="$2">
+                <Label>Split values</Label>
+                {state.membersForGroup.map((member) => (
+                  <XStack key={member.id} ai="center" gap="$2" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
+                    <YStack flex={1}>
+                      <Text color="#09090b" fontSize={14} fontWeight="900">
+                        {member.name}
+                      </Text>
+                      <Muted>{defaultValueUnit(state.splitMode)}</Muted>
+                    </YStack>
+                    <Input
+                      value={state.splitValues[member.id] ?? ''}
+                      onChangeText={(value) => state.setExpenseSplitValue(member.id, value)}
+                      keyboardType="decimal-pad"
+                      placeholder="0"
+                      width={112}
+                      {...inputProps}
+                    />
+                  </XStack>
+                ))}
+              </YStack>
+            ) : null}
+            <YStack bg="#f4f4f5" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3" gap="$2">
+              <Label>Participants</Label>
+              <XStack fw="wrap" gap="$2">
+                {state.membersForGroup.map((member) => (
+                  <SizableText key={member.id} color="#18181b" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br={999} px="$3" py="$2" size="$2" fontWeight="800">
+                    {member.name}
+                  </SizableText>
+                ))}
+              </XStack>
+            </YStack>
+            <YStack bg={state.splitPreview.valid ? '#fafafa' : '#fff1f2'} borderWidth={1} borderColor={state.splitPreview.valid ? '#e4e4e7' : '#fecdd3'} br="$3" p="$3" gap="$2">
+              <XStack ai="center" jc="space-between">
+                <Label>Split validation</Label>
+                <SizableText color={state.splitPreview.valid ? '#09090b' : '#be123c'} size="$2" fontWeight="900">
+                  {state.splitPreview.message}
                 </SizableText>
               </XStack>
-            ))}
-          </YStack>
-          <Field label="Notes">
-            <Input value={state.notes} onChangeText={state.setNotes} placeholder="Internal note, memo, or reminder context" {...inputProps} />
-          </Field>
-          <Field label="Recurring bill">
-            <XStack gap="$1.5" fw="wrap">
-              {recurrenceOptions.map((option) => (
-                <Chip key={option} label={option} active={state.recurrence === option} onPress={() => state.setRecurrence(option)} />
+              {state.splitPreview.preview.map((share) => (
+                <XStack key={share.memberId} jc="space-between">
+                  <Muted>{state.memberName(share.memberId)}</Muted>
+                  <SizableText color="#09090b" size="$2" fontWeight="900">
+                    {state.currency} {share.amount.toFixed(2)}
+                  </SizableText>
+                </XStack>
               ))}
-            </XStack>
-          </Field>
-          {state.recurrence !== 'none' ? (
-            <Field label="Reminder days before due date">
-              <Input value={state.reminderDays} onChangeText={state.setReminderDays} keyboardType="number-pad" placeholder="3" {...inputProps} />
-            </Field>
-          ) : null}
-          <PrimaryButton icon={<Plus size={17} color="#ffffff" />} label="Save expense" onPress={state.addExpense} />
-        </YStack>
-      </Panel>
+            </YStack>
+          </YStack>
+        </Panel>
+      ) : null}
 
-      <Panel title="Receipt itemization">
+      {state.addExpenseStep === 'receipt' ? (
+        <Panel title="Receipt itemization">
         <YStack gap="$3">
           <Field label="Attachment">
             <Input value={state.attachmentName} onChangeText={state.setAttachmentName} placeholder="receipt.jpg" {...inputProps} />
@@ -2073,7 +2103,25 @@ function AddExpenseScreen({ state }) {
           </YStack>
           <SecondaryButton icon={<ListFilter size={16} color="#09090b" />} label="Use itemized split" onPress={state.applyItemizedSplit} />
         </YStack>
-      </Panel>
+        </Panel>
+      ) : null}
+
+      {state.addExpenseStep === 'review' ? (
+        <Panel title="Review">
+          <YStack gap="$3">
+            <FeatureList rows={[
+              ['Description', state.description || 'Not set'],
+              ['Amount', `${state.currency} ${Number(state.amount || 0).toFixed(2)}`],
+              ['Type', `${state.expenseKind} · ${state.category}`],
+              ['Paid by', state.memberName(state.paidBy)],
+              ['Payers', state.payerValidation.message],
+              ['Split', state.splitPreview.message],
+              ['Receipt items', `${state.receiptItems.length} items · ${state.currency} ${state.itemizedTotal.toFixed(2)}`],
+            ]} />
+            <PrimaryButton icon={<Plus size={17} color="#ffffff" />} label="Save expense" onPress={state.addExpense} />
+          </YStack>
+        </Panel>
+      ) : null}
     </>
   )
 }
