@@ -24,6 +24,12 @@ bun run cloudflare:provision
 
 The D1 create command prints a `database_id`. Replace `replace-with-cloudflare-d1-id` in `wrangler.toml` with that real id.
 
+`wrangler.toml` also binds:
+
+- `RECEIPTS` to the `splitclub-receipts` R2 bucket.
+- `SYNC_QUEUE` to the `splitclub-sync` queue.
+- `AI` for receipt OCR extraction.
+
 ## Configure Auth
 
 Set production auth secrets/vars:
@@ -52,6 +58,8 @@ bun run db:migrate:remote
 bun run worker:deploy
 ```
 
+Remote migrations should apply every file in `migrations/`, including `0004_receipts.sql` for receipt metadata and extracted line items.
+
 ## Smoke Test
 
 Health and feature metadata are public:
@@ -66,4 +74,4 @@ Ledger endpoints require a real bearer token:
 SPLITCLUB_TEST_TOKEN=... bun run worker:smoke -- https://splitclub-api.<account>.workers.dev
 ```
 
-The smoke script checks health, features, session, groups, expenses, search, balances, and sync.
+The smoke script checks health, features, session, groups, expenses, receipts, search, balances, and sync.

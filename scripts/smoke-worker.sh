@@ -19,6 +19,7 @@ auth_header="Authorization: Bearer ${SPLITCLUB_TEST_TOKEN}"
 curl --fail --silent -H "$auth_header" "$BASE_URL/api/auth/session" > /dev/null
 curl --fail --silent -H "$auth_header" "$BASE_URL/api/groups" > /dev/null
 curl --fail --silent -H "$auth_header" "$BASE_URL/api/expenses" > /dev/null
+curl --fail --silent -H "$auth_header" "$BASE_URL/api/receipts" > /dev/null
 curl --fail --silent -H "$auth_header" "$BASE_URL/api/search?q=rent" > /dev/null
 curl --fail --silent -H "$auth_header" "$BASE_URL/api/groups/non-group/balances" > /dev/null
 curl --fail --silent -H "$auth_header" "$BASE_URL/api/sync" > /dev/null
