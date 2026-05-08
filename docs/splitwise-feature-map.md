@@ -53,6 +53,7 @@ SplitClub should cover the following Splitwise-style capabilities:
 - Group invite delivery includes shareable invite links, web clipboard handoff, native sharing, and a public Worker invite landing page.
 - Android/web invite links can now open the app shell, prefill the invite token, and accept through cloud or local invite state.
 - Invite acceptance is verified against the authenticated member email or phone before membership is created.
+- Group invite creation, invite acceptance with known group context, member role changes, and member removals now send base revisions and receive actionable cloud conflicts when group collaboration state changed first.
 - Account controls can link/update display name, email, phone, and preferred payment method locally and through the Worker account route so invite matching uses current identity data.
 - Account controls now show production OIDC readiness from the Worker, including app client readiness, Worker issuer/audience/JWKS readiness, issuer host, and required claims without exposing signing key URLs.
 - Production OIDC tokens can carry `phone_number` into newly linked member records so phone-based invite matching works when members first sign in.
@@ -64,7 +65,7 @@ SplitClub should cover the following Splitwise-style capabilities:
 
 ## Next Tickets
 
-- Production Cloudflare resource provisioning, secret setup, and broad push-side conflict coverage beyond expense/group lifecycle mutations.
+- Production Cloudflare resource provisioning, secret setup, and remaining push-side conflict coverage for friend/account and settlement mutations.
 - Richer receipt-to-expense review affordances.
 - Background scheduler automation for recurring reminders and due bill notifications.
 - Store-track Android release packaging with Play App Signing or an equivalent distribution channel.

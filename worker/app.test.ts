@@ -607,6 +607,51 @@ describe('SplitClub Worker API', () => {
     expect(staleDeleteResponse.status).toBe(409)
   })
 
+  test('rejects stale collaboration pushes with group conflict details', async () => {
+    const env = createEnv()
+
+    const inviteResponse = await request(
+      '/api/groups/goa/invites',
+      {
+        method: 'POST',
+        headers: { 'x-splitclub-base-revision': 'stale-group-copy' },
+        body: JSON.stringify({ invitedEmail: 'new@example.com', role: 'member' }),
+      },
+      env,
+    )
+    const inviteBody = (await inviteResponse.json()) as { error: string; conflict: { entity: string; recordId: string } }
+    expect(inviteResponse.status).toBe(409)
+    expect(inviteBody.error).toBe('group_conflict')
+    expect(inviteBody.conflict).toMatchObject({ entity: 'group', recordId: 'goa' })
+
+    const roleResponse = await request(
+      '/api/groups/goa/members/anya',
+      {
+        method: 'PUT',
+        headers: { 'x-splitclub-base-revision': 'stale-group-copy' },
+        body: JSON.stringify({ role: 'admin' }),
+      },
+      env,
+    )
+    const roleBody = (await roleResponse.json()) as { error: string; conflict: { entity: string; recordId: string } }
+    expect(roleResponse.status).toBe(409)
+    expect(roleBody.error).toBe('group_conflict')
+    expect(roleBody.conflict).toMatchObject({ entity: 'group', recordId: 'goa' })
+
+    const removalResponse = await request(
+      '/api/groups/goa/members/anya',
+      {
+        method: 'DELETE',
+        headers: { 'x-splitclub-base-revision': 'stale-group-copy' },
+      },
+      env,
+    )
+    const removalBody = (await removalResponse.json()) as { error: string; conflict: { entity: string; recordId: string } }
+    expect(removalResponse.status).toBe(409)
+    expect(removalBody.error).toBe('group_conflict')
+    expect(removalBody.conflict).toMatchObject({ entity: 'group', recordId: 'goa' })
+  })
+
   test('exports scoped CSV and JSON backup files', async () => {
     const env = createEnv()
 

@@ -195,6 +195,14 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
     reviewHistory: reviewHistory(receipt.id),
   })
 
+  const touchGroup = (groupId: string) => {
+    const updatedAt = now()
+    ledger = {
+      ...ledger,
+      groups: ledger.groups.map((group) => (group.id === groupId ? { ...group, updatedAt } : group)),
+    }
+  }
+
   const addReceiptReview = (
     receipt: ReceiptRecord,
     action: ReceiptReviewEvent['action'],
@@ -389,6 +397,7 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
         createdAt: now(),
       }
       invites.unshift(invite)
+      touchGroup(invite.groupId)
       audit('group_invite', invite.id, 'created', invite)
       return structuredClone(invite)
     },
@@ -406,8 +415,18 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
     async updateMembership(input) {
       const group = ledger.groups.find((candidate) => candidate.id === input.groupId)
       if (!group) throw new Error('Group not found')
-      if (!group.memberIds.includes(input.userId)) {
-        group.memberIds.push(input.userId)
+      const updatedAt = now()
+      ledger = {
+        ...ledger,
+        groups: ledger.groups.map((candidate) =>
+          candidate.id === input.groupId
+            ? {
+                ...candidate,
+                memberIds: candidate.memberIds.includes(input.userId) ? candidate.memberIds : [...candidate.memberIds, input.userId],
+                updatedAt,
+              }
+            : candidate,
+        ),
       }
       roles.set(`${input.groupId}:${input.userId}`, input.role)
       audit('membership', `${input.groupId}:${input.userId}`, 'updated', input)
@@ -417,7 +436,7 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
       ledger = {
         ...ledger,
         groups: ledger.groups.map((group) =>
-          group.id === groupId ? { ...group, memberIds: group.memberIds.filter((memberId) => memberId !== userId) } : group,
+          group.id === groupId ? { ...group, memberIds: group.memberIds.filter((memberId) => memberId !== userId), updatedAt: now() } : group,
         ),
       }
       roles.delete(`${groupId}:${userId}`)
@@ -1251,6 +1270,7 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
         .prepare('INSERT INTO group_invites (id, group_id, invited_email, invited_phone, role, token, status, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
         .bind(invite.id, invite.groupId, invite.invitedEmail, invite.invitedPhone, invite.role, invite.token, invite.status, invite.createdBy, invite.createdAt)
         .run()
+      await db.prepare('UPDATE groups SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(invite.groupId).run()
       await audit('group_invite', invite.id, 'created', invite)
       return invite
     },
@@ -1309,6 +1329,7 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
         .prepare('INSERT OR REPLACE INTO group_memberships (group_id, user_id, role, deleted_at) VALUES (?, ?, ?, NULL)')
         .bind(input.groupId, input.userId, input.role)
         .run()
+      await db.prepare('UPDATE groups SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(input.groupId).run()
       await audit('membership', `${input.groupId}:${input.userId}`, 'updated', input)
       return { groupId: input.groupId, userId: input.userId, role: input.role }
     },
@@ -1317,6 +1338,7 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
         .prepare('UPDATE group_memberships SET deleted_at = CURRENT_TIMESTAMP WHERE group_id = ? AND user_id = ?')
         .bind(groupId, userId)
         .run()
+      await db.prepare('UPDATE groups SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(groupId).run()
       await audit('membership', `${groupId}:${userId}`, 'removed', { groupId, userId })
     },
     async listExpenses(filters = {}) {

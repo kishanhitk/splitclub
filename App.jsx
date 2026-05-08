@@ -1223,6 +1223,9 @@ function SplitClubApp() {
       Alert.alert('Invite needs a group and email', 'Choose a group and add an email.')
       return
     }
+    const group = ledger.groups.find((candidate) => candidate.id === selectedGroupId)
+    const baseRevision = groupRevision(group)
+    const updatedAt = new Date().toISOString()
     const invite = {
       id: `invite-${Date.now()}`,
       groupId: selectedGroupId,
@@ -1232,11 +1235,15 @@ function SplitClubApp() {
       token: `join_${Date.now()}`,
     }
     setPendingInvites((invites) => [invite, ...invites])
+    setLedger((current) => ({
+      ...current,
+      groups: current.groups.map((candidate) => (candidate.id === selectedGroupId ? { ...candidate, updatedAt } : candidate)),
+    }))
     setSyncState('Invite created')
     pushCloudJson(`/api/groups/${selectedGroupId}/invites`, {
       invitedEmail: invite.invitedEmail,
       role: invite.role,
-    }, 'Group invite').catch(() => undefined)
+    }, 'Group invite', 'POST', { baseRevision }).catch(() => undefined)
   }
 
   const buildInviteLink = (invite) => {
@@ -1296,7 +1303,7 @@ function SplitClubApp() {
       members: current.members.some((member) => member.id === invitee.id) ? current.members : [invitee, ...current.members],
       groups: current.groups.map((group) =>
         group.id === invite.groupId && !group.memberIds.includes(invitee.id)
-          ? { ...group, memberIds: [...group.memberIds, invitee.id] }
+          ? { ...group, memberIds: [...group.memberIds, invitee.id], updatedAt: new Date().toISOString() }
           : group,
       ),
     }))
@@ -1315,8 +1322,10 @@ function SplitClubApp() {
   const acceptInvite = (inviteId) => {
     const invite = pendingInvites.find((candidate) => candidate.id === inviteId)
     if (!invite || invite.status !== 'pending') return
+    const group = ledger.groups.find((candidate) => candidate.id === invite.groupId)
+    const baseRevision = groupRevision(group)
     applyAcceptedInvite(invite)
-    pushCloudJson(`/api/invites/${invite.token}/accept`, {}, 'Invite acceptance').catch(() => undefined)
+    pushCloudJson(`/api/invites/${invite.token}/accept`, { groupId: invite.groupId }, 'Invite acceptance', 'POST', { baseRevision }).catch(() => undefined)
   }
 
   const acceptInviteToken = async () => {
@@ -1328,12 +1337,19 @@ function SplitClubApp() {
     }
     setInviteTokenInput(token)
     const localInvite = pendingInvites.find((candidate) => candidate.token === token || candidate.id === token)
+    const localInviteGroup = localInvite ? ledger.groups.find((candidate) => candidate.id === localInvite.groupId) : null
+    const localInviteBaseRevision = groupRevision(localInviteGroup)
 
     if (cloudSyncReady) {
       try {
         const response = await fetch(`${cloudApiUrl}/api/invites/${encodeURIComponent(token)}/accept`, {
           method: 'POST',
-          headers: sessionHeaders(authSession),
+          headers: {
+            ...sessionHeaders(authSession),
+            ...(localInviteBaseRevision ? { 'x-splitclub-base-revision': localInviteBaseRevision } : {}),
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify(localInvite?.groupId ? { groupId: localInvite.groupId } : {}),
         })
         const body = await response.json().catch(() => ({}))
         if (!response.ok) {
@@ -1350,7 +1366,7 @@ function SplitClubApp() {
     if (localInvite) {
       applyAcceptedInvite(localInvite)
       setInviteLinkStatus('Invite accepted locally')
-      pushCloudJson(`/api/invites/${token}/accept`, {}, 'Invite acceptance').catch(() => undefined)
+      pushCloudJson(`/api/invites/${token}/accept`, { groupId: localInvite.groupId }, 'Invite acceptance', 'POST', { baseRevision: localInviteBaseRevision }).catch(() => undefined)
       return
     }
 
@@ -1361,6 +1377,9 @@ function SplitClubApp() {
 
   const setMemberRole = (memberId, role) => {
     if (!selectedGroupId) return
+    const group = ledger.groups.find((candidate) => candidate.id === selectedGroupId)
+    const baseRevision = groupRevision(group)
+    const updatedAt = new Date().toISOString()
     setMembershipRoles((current) => ({
       ...current,
       [selectedGroupId]: {
@@ -1368,14 +1387,21 @@ function SplitClubApp() {
         [memberId]: role,
       },
     }))
+    setLedger((current) => ({
+      ...current,
+      groups: current.groups.map((candidate) => (candidate.id === selectedGroupId ? { ...candidate, updatedAt } : candidate)),
+    }))
     setSyncState('Permissions updated')
     pushCloudJson(`/api/groups/${selectedGroupId}/members/${memberId}`, {
       role,
-    }, 'Member role', 'PUT').catch(() => undefined)
+    }, 'Member role', 'PUT', { baseRevision }).catch(() => undefined)
   }
 
   const removeMember = (memberId) => {
     if (!selectedGroupId) return
+    const group = ledger.groups.find((candidate) => candidate.id === selectedGroupId)
+    const baseRevision = groupRevision(group)
+    const updatedAt = new Date().toISOString()
     const balance = calculateBalances(ledger, selectedGroupId, currency).find((item) => item.memberId === memberId)
     if (balance && Math.abs(balance.amount) >= 0.01) {
       setSyncState(`Settle ${memberName(memberId)} before removing`)
@@ -1384,11 +1410,11 @@ function SplitClubApp() {
     setLedger((current) => ({
       ...current,
       groups: current.groups.map((group) =>
-        group.id === selectedGroupId ? { ...group, memberIds: group.memberIds.filter((id) => id !== memberId) } : group,
+        group.id === selectedGroupId ? { ...group, memberIds: group.memberIds.filter((id) => id !== memberId), updatedAt } : group,
       ),
     }))
     setSyncState('Member removed')
-    pushCloudJson(`/api/groups/${selectedGroupId}/members/${memberId}`, undefined, 'Member removal', 'DELETE').catch(() => undefined)
+    pushCloudJson(`/api/groups/${selectedGroupId}/members/${memberId}`, undefined, 'Member removal', 'DELETE', { baseRevision }).catch(() => undefined)
   }
 
   const requestReminderPermission = async () => {
