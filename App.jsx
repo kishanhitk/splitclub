@@ -1244,6 +1244,29 @@ function SplitClubApp() {
     }
   }
 
+  const resolveCloudConflict = (conflictId, strategy) => {
+    const conflict = lastCloudSync?.conflicts?.find((item) => item.id === conflictId)
+    if (!conflict) return
+
+    if (strategy === 'local') {
+      setLedger((current) => ({
+        ...current,
+        members: conflict.entity === 'member' ? replaceRecord(current.members, conflict.localRecord) : current.members,
+        groups: conflict.entity === 'group' ? replaceRecord(current.groups, conflict.localRecord) : current.groups,
+        expenses: conflict.entity === 'expense' ? replaceRecord(current.expenses, conflict.localRecord) : current.expenses,
+      }))
+    }
+
+    setLastCloudSync((current) => {
+      if (!current) return current
+      return syncSummaryWithConflicts(
+        current,
+        (current.conflicts ?? []).filter((item) => item.id !== conflictId),
+      )
+    })
+    setSyncState(strategy === 'local' ? 'Local version restored' : 'Cloud version kept')
+  }
+
   const shareExport = () => {
     const csv = exportCsv(ledger)
     if (Platform.OS === 'web') {
@@ -1412,6 +1435,7 @@ function SplitClubApp() {
     lastCloudSync,
     lastCloudPush,
     pullCloudSync,
+    resolveCloudConflict,
     upcomingRecurring,
     cancelRecurring,
     syncState,
@@ -1605,6 +1629,20 @@ function downloadTextFile(fileName, contents, mimeType) {
   link.click()
   link.remove()
   URL.revokeObjectURL(url)
+}
+
+function replaceRecord(records, nextRecord) {
+  return records.map((record) => (record.id === nextRecord.id ? nextRecord : record))
+}
+
+function syncSummaryWithConflicts(summary, conflicts) {
+  return {
+    ...summary,
+    conflicts,
+    memberConflicts: conflicts.filter((conflict) => conflict.entity === 'member').length,
+    groupConflicts: conflicts.filter((conflict) => conflict.entity === 'group').length,
+    expenseConflicts: conflicts.filter((conflict) => conflict.entity === 'expense').length,
+  }
 }
 
 function ActivityScreen({ state }) {
@@ -2807,6 +2845,32 @@ function ToolsScreen({ state }) {
           <SecondaryButton icon={<RefreshCcw size={16} color="#09090b" />} label={state.cloudSyncReady ? 'Pull cloud ledger' : 'Check cloud sync'} onPress={state.pullCloudSync} />
         </YStack>
       </Panel>
+      {state.lastCloudSync?.conflicts?.length ? (
+        <Panel title="Sync conflicts">
+          <YStack gap="$2">
+            {state.lastCloudSync.conflicts.slice(0, 8).map((conflict) => (
+              <YStack key={conflict.id} bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3" gap="$2">
+                <XStack ai="center" jc="space-between" gap="$3">
+                  <YStack flex={1}>
+                    <Text color="#09090b" fontSize={14} fontWeight="900">
+                      {conflict.label}
+                    </Text>
+                    <Muted>
+                      {conflict.entity} · local {conflict.localTimestamp ?? 'no timestamp'} · cloud {conflict.remoteTimestamp ?? 'no timestamp'}
+                    </Muted>
+                  </YStack>
+                  <RefreshCcw size={16} color="#09090b" />
+                </XStack>
+                <XStack gap="$2" fw="wrap">
+                  <SecondaryButton icon={<Check size={16} color="#09090b" />} label="Keep cloud" onPress={() => state.resolveCloudConflict(conflict.id, 'cloud')} />
+                  <SecondaryButton icon={<RefreshCcw size={16} color="#09090b" />} label="Keep local" onPress={() => state.resolveCloudConflict(conflict.id, 'local')} />
+                </XStack>
+              </YStack>
+            ))}
+            {state.lastCloudSync.conflicts.length > 8 ? <Muted>{state.lastCloudSync.conflicts.length - 8} more conflicts remain.</Muted> : null}
+          </YStack>
+        </Panel>
+      ) : null}
       <Panel title="Deleted groups">
         <YStack gap="$2">
           {state.deletedGroups.map((group) => (

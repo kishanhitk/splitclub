@@ -323,5 +323,13 @@ describe('split engine', () => {
       groupConflicts: 0,
       expenseConflicts: 1,
     })
+    expect(summary.conflicts).toHaveLength(1)
+    expect(summary.conflicts[0]).toMatchObject({
+      id: 'expense:e1',
+      entity: 'expense',
+      label: 'Remote villa update',
+      localRecord: { description: seedLedger.expenses[0].description },
+      remoteRecord: { description: 'Remote villa update' },
+    })
   })
 })
