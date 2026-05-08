@@ -477,13 +477,14 @@ describe('SplitClub Worker API', () => {
 
     const response = await request('/api/receipts', { method: 'POST', body: form }, env)
     const body = (await response.json()) as {
-      receipt: { objectKey: string; ocrStatus: string }
+      receipt: { objectKey: string; ocrStatus: string; reviewHistory: Array<{ action: string; source: string; itemCount: number }> }
       extractedItems: Array<{ id?: string; label: string; amount: number; assignedTo: string[] }>
     }
 
     expect(response.status).toBe(201)
     expect(body.receipt.objectKey).toContain('receipts/kishan/receipt_')
     expect(body.receipt.ocrStatus).toBe('complete')
+    expect(body.receipt.reviewHistory[0]).toMatchObject({ action: 'uploaded', source: 'review_text', itemCount: 2 })
     expect(body.extractedItems).toEqual([
       { id: 'ocr-1', label: 'Fish thali', amount: 520, assignedTo: ['kishan', 'anya'] },
       { id: 'ocr-2', label: 'Lime soda', amount: 160, assignedTo: ['kishan', 'anya'] },
@@ -497,7 +498,7 @@ describe('SplitClub Worker API', () => {
     form.set('file', new File(['receipt image bytes'], 'pending.pdf', { type: 'application/pdf' }))
 
     const uploadResponse = await request('/api/receipts', { method: 'POST', body: form }, env)
-    const uploadBody = (await uploadResponse.json()) as { receipt: { id: string; ocrStatus: string; extractedItems: unknown[] } }
+    const uploadBody = (await uploadResponse.json()) as { receipt: { id: string; ocrStatus: string; extractedItems: unknown[]; reviewHistory: unknown[] } }
     expect(uploadResponse.status).toBe(201)
     expect(uploadBody.receipt.ocrStatus).toBe('pending')
 
@@ -513,7 +514,7 @@ describe('SplitClub Worker API', () => {
       env,
     )
     const retryBody = (await retryResponse.json()) as {
-      receipt: { ocrStatus: string; extractedItems: Array<{ id?: string; label: string; amount: number; assignedTo: string[] }> }
+      receipt: { ocrStatus: string; extractedItems: Array<{ id?: string; label: string; amount: number; assignedTo: string[] }>; reviewHistory: Array<{ action: string; source: string; itemCount: number }> }
       extractedItems: Array<{ id?: string; label: string; amount: number; assignedTo: string[] }>
     }
     expect(retryResponse.status).toBe(200)
@@ -523,7 +524,78 @@ describe('SplitClub Worker API', () => {
       { id: 'ocr-2', label: 'Naan basket', amount: 180, assignedTo: ['kishan', 'anya'] },
     ])
     expect(retryBody.receipt.extractedItems).toHaveLength(2)
+    expect(retryBody.receipt.reviewHistory.map((event) => event.action)).toEqual(['retried', 'uploaded'])
+    expect(retryBody.receipt.reviewHistory[0]).toMatchObject({ source: 'review_text', itemCount: 2 })
     expect(queueMessages.some((message) => JSON.stringify(message).includes('receipt.ocr_retried'))).toBe(true)
+  })
+
+  test('links a cloud receipt to a saved expense and exposes lifecycle history', async () => {
+    const env = createEnv()
+    const form = new FormData()
+    form.set('file', new File(['receipt image bytes'], 'linked.jpg', { type: 'image/jpeg' }))
+    form.set('ocrText', 'Room snacks 300')
+    form.append('assignedTo', 'kishan')
+    form.append('assignedTo', 'anya')
+
+    const uploadResponse = await request('/api/receipts', { method: 'POST', body: form }, env)
+    const uploadBody = (await uploadResponse.json()) as { receipt: { id: string } }
+
+    const createResponse = await request(
+      '/api/expenses',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          groupId: 'goa',
+          description: 'Room snacks',
+          amount: 300,
+          currency: 'INR',
+          paidBy: 'kishan',
+          participants: ['kishan', 'anya'],
+          splitMode: 'equal',
+          category: 'Food',
+          kind: 'expense',
+          date: '2026-05-08',
+          attachmentName: 'linked.jpg',
+          receiptId: uploadBody.receipt.id,
+          receiptItems: [{ label: 'Room snacks', amount: 300, assignedTo: ['kishan', 'anya'] }],
+        }),
+      },
+      env,
+    )
+    const createBody = (await createResponse.json()) as { expense: { id: string; receiptId?: string } }
+    expect(createResponse.status).toBe(201)
+    expect(createBody.expense.receiptId).toBe(uploadBody.receipt.id)
+
+    const receiptsResponse = await request('/api/receipts', {}, env)
+    const receiptsBody = (await receiptsResponse.json()) as {
+      receipts: Array<{ id: string; expenseId?: string; reviewHistory: Array<{ action: string; source: string }> }>
+    }
+    const linkedReceipt = receiptsBody.receipts.find((receipt) => receipt.id === uploadBody.receipt.id)
+    expect(linkedReceipt?.expenseId).toBe(createBody.expense.id)
+    expect(linkedReceipt?.reviewHistory.map((event) => event.action)).toContain('linked')
+    expect(linkedReceipt?.reviewHistory[0]).toMatchObject({ action: 'linked', source: 'expense_link' })
+
+    const reuseResponse = await request(
+      '/api/expenses',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          groupId: 'goa',
+          description: 'Duplicate snacks',
+          amount: 300,
+          currency: 'INR',
+          paidBy: 'kishan',
+          participants: ['kishan', 'anya'],
+          splitMode: 'equal',
+          category: 'Food',
+          kind: 'expense',
+          date: '2026-05-08',
+          receiptId: uploadBody.receipt.id,
+        }),
+      },
+      env,
+    )
+    expect(reuseResponse.status).toBe(409)
   })
 
   test('updates comments deletes restores and returns expense history', async () => {
