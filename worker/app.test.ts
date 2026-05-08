@@ -205,7 +205,7 @@ describe('SplitClub Worker API', () => {
       '/api/groups/goa/invites',
       {
         method: 'POST',
-        body: JSON.stringify({ invitedEmail: 'rhea@example.com', role: 'member', createdBy: 'kishan' }),
+        body: JSON.stringify({ invitedEmail: 'outsider@example.com', role: 'member', createdBy: 'kishan' }),
       },
       env,
     )
@@ -213,6 +213,28 @@ describe('SplitClub Worker API', () => {
     expect(inviteResponse.status).toBe(201)
     expect(inviteBody.invite.status).toBe('pending')
     expect(inviteBody.invite.token).toStartWith('join_')
+
+    const acceptInviteResponse = await request(
+      `/api/invites/${inviteBody.invite.token}/accept`,
+      { method: 'POST', headers: { Authorization: 'Bearer test-outsider' } },
+      env,
+      false,
+    )
+    const acceptInviteBody = (await acceptInviteResponse.json()) as { invite: { status: string; acceptedBy: string }; membership: { userId: string; role: string } }
+    expect(acceptInviteResponse.status).toBe(200)
+    expect(acceptInviteBody.invite).toMatchObject({ status: 'accepted', acceptedBy: 'outsider' })
+    expect(acceptInviteBody.membership).toMatchObject({ userId: 'outsider', role: 'member' })
+
+    const repeatAcceptResponse = await request(
+      `/api/invites/${inviteBody.invite.token}/accept`,
+      { method: 'POST', headers: { Authorization: 'Bearer test-outsider' } },
+      env,
+      false,
+    )
+    expect(repeatAcceptResponse.status).toBe(409)
+
+    const missingAcceptResponse = await request('/api/invites/join_missing/accept', { method: 'POST' }, env)
+    expect(missingAcceptResponse.status).toBe(404)
 
     const membershipResponse = await request(
       `/api/groups/goa/members/${friendBody.friend.id}`,
