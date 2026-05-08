@@ -13,9 +13,10 @@ import {
   WalletCards,
   Wrench,
 } from 'lucide-react-native'
+import { currencyCodes } from '../domain/currencies'
 
 export const splitModes = ['equal', 'exact', 'percent', 'shares', 'adjustment']
-export const currencies = ['INR', 'USD', 'EUR', 'GBP', 'CAD', 'AUD', 'SGD', 'AED', 'JPY', 'THB', 'IDR', 'MYR', 'PHP', 'HKD', 'CHF', 'SEK', 'NOK', 'DKK', 'NZD', 'ZAR']
+export const currencies = currencyCodes
 export const expenseKinds = ['expense', 'refund', 'reimbursement', 'debt']
 export const categories = ['Transport', 'Food', 'Lodging', 'Rent', 'Groceries', 'Utilities', 'Tickets']
 export const groupRoles = ['owner', 'admin', 'member', 'viewer']
