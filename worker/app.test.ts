@@ -14,6 +14,9 @@ function createEnv(): Bindings {
         receiptObjects.push({ key, size: value.byteLength, contentType: options?.httpMetadata?.contentType })
         return null
       },
+      get: async () => ({
+        arrayBuffer: async () => new TextEncoder().encode('retry bytes').buffer,
+      }),
     } as unknown as R2Bucket,
     SYNC_QUEUE: {
       send: async (message: unknown) => {
@@ -486,6 +489,41 @@ describe('SplitClub Worker API', () => {
       { id: 'ocr-2', label: 'Lime soda', amount: 160, assignedTo: ['kishan', 'anya'] },
     ])
     expect(receiptObjects.at(-1)?.contentType).toBe('image/jpeg')
+  })
+
+  test('retries receipt OCR and replaces extracted line items', async () => {
+    const env = createEnv()
+    const form = new FormData()
+    form.set('file', new File(['receipt image bytes'], 'pending.pdf', { type: 'application/pdf' }))
+
+    const uploadResponse = await request('/api/receipts', { method: 'POST', body: form }, env)
+    const uploadBody = (await uploadResponse.json()) as { receipt: { id: string; ocrStatus: string; extractedItems: unknown[] } }
+    expect(uploadResponse.status).toBe(201)
+    expect(uploadBody.receipt.ocrStatus).toBe('pending')
+
+    const retryResponse = await request(
+      `/api/receipts/${uploadBody.receipt.id}/retry`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          ocrText: 'Paneer tikka 420\nNaan basket 180',
+          assignedTo: ['kishan', 'anya'],
+        }),
+      },
+      env,
+    )
+    const retryBody = (await retryResponse.json()) as {
+      receipt: { ocrStatus: string; extractedItems: Array<{ id?: string; label: string; amount: number; assignedTo: string[] }> }
+      extractedItems: Array<{ id?: string; label: string; amount: number; assignedTo: string[] }>
+    }
+    expect(retryResponse.status).toBe(200)
+    expect(retryBody.receipt.ocrStatus).toBe('complete')
+    expect(retryBody.extractedItems).toEqual([
+      { id: 'ocr-1', label: 'Paneer tikka', amount: 420, assignedTo: ['kishan', 'anya'] },
+      { id: 'ocr-2', label: 'Naan basket', amount: 180, assignedTo: ['kishan', 'anya'] },
+    ])
+    expect(retryBody.receipt.extractedItems).toHaveLength(2)
+    expect(queueMessages.some((message) => JSON.stringify(message).includes('receipt.ocr_retried'))).toBe(true)
   })
 
   test('updates comments deletes restores and returns expense history', async () => {

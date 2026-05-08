@@ -88,6 +88,8 @@ export type LedgerStore = {
   getExpenseDetails(expenseId: string): Promise<{ expense?: Expense; comments: ExpenseComment[]; history: ExpenseHistoryEvent[] }>
   recordSettlement(input: SettlementInput): Promise<Expense>
   createReceipt(input: Omit<ReceiptRecord, 'createdAt'>): Promise<ReceiptRecord>
+  getReceipt(receiptId: string, ownerId: string): Promise<ReceiptRecord | undefined>
+  updateReceiptExtraction(receiptId: string, ownerId: string, input: { ocrStatus: ReceiptRecord['ocrStatus']; ocrText?: string; extractedItems: ExtractedReceiptItem[] }, actorId?: string): Promise<ReceiptRecord>
   listReceipts(ownerId: string): Promise<ReceiptRecord[]>
   listAuditEvents(): Promise<AuditEvent[]>
 }
@@ -473,6 +475,22 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
       receipts.unshift(receipt)
       audit('receipt', receipt.id, 'created', receipt)
       return structuredClone(receipt)
+    },
+    async getReceipt(receiptId, ownerId) {
+      return structuredClone(receipts.find((receipt) => receipt.id === receiptId && receipt.ownerId === ownerId))
+    },
+    async updateReceiptExtraction(receiptId, ownerId, input, actorId) {
+      const receipt = receipts.find((candidate) => candidate.id === receiptId && candidate.ownerId === ownerId)
+      if (!receipt) throw new Error('Receipt not found')
+      const updated = {
+        ...receipt,
+        ocrStatus: input.ocrStatus,
+        ocrText: input.ocrText,
+        extractedItems: input.extractedItems,
+      }
+      receipts.splice(receipts.indexOf(receipt), 1, updated)
+      audit('receipt', receiptId, 'retried', updated, actorId)
+      return structuredClone(updated)
     },
     async listReceipts(ownerId) {
       return structuredClone(receipts.filter((receipt) => receipt.ownerId === ownerId))
@@ -1251,6 +1269,34 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
         .first<ReceiptRow>()
       if (!row) throw new Error('Receipt was not stored')
       return toReceipt(row)
+    },
+    async getReceipt(receiptId, ownerId) {
+      const row = await db
+        .prepare('SELECT id, expense_id, owner_user_id, object_key, file_name, content_type, size_bytes, ocr_status, ocr_text, created_at FROM receipts WHERE id = ? AND owner_user_id = ?')
+        .bind(receiptId, ownerId)
+        .first<ReceiptRow>()
+      return row ? toReceipt(row) : undefined
+    },
+    async updateReceiptExtraction(receiptId, ownerId, input, actorId) {
+      const existing = await this.getReceipt(receiptId, ownerId)
+      if (!existing) throw new Error('Receipt not found')
+      await db
+        .prepare('UPDATE receipts SET ocr_status = ?, ocr_text = ? WHERE id = ? AND owner_user_id = ?')
+        .bind(input.ocrStatus, input.ocrText, receiptId, ownerId)
+        .run()
+      await db.prepare('DELETE FROM receipt_extracted_items WHERE receipt_id = ?').bind(receiptId).run()
+      await Promise.all(
+        input.extractedItems.map((item, index) =>
+          db
+            .prepare('INSERT INTO receipt_extracted_items (id, receipt_id, label, amount, assigned_to_json) VALUES (?, ?, ?, ?, ?)')
+            .bind(item.id ?? makeId(`receipt_item_${index}`), receiptId, item.label, item.amount, JSON.stringify(item.assignedTo))
+            .run(),
+        ),
+      )
+      await audit('receipt', receiptId, 'retried', input, actorId)
+      const updated = await this.getReceipt(receiptId, ownerId)
+      if (!updated) throw new Error('Receipt was not updated')
+      return updated
     },
     async listReceipts(ownerId) {
       const result = await db

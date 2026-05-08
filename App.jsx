@@ -1025,6 +1025,39 @@ function SplitClubApp() {
     setSyncState('Receipt items applied')
   }
 
+  const retryCloudReceipt = async (receiptId) => {
+    if (!cloudSyncReady) {
+      setReceiptLibraryStatus('Sign in and configure cloud sync to retry OCR')
+      return
+    }
+    try {
+      const response = await fetch(`${cloudApiUrl}/api/receipts/${receiptId}/retry`, {
+        method: 'POST',
+        headers: {
+          ...sessionHeaders(authSession),
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          ocrText: receiptOcrText,
+          assignedTo: membersForGroup.map((member) => member.id),
+        }),
+      })
+      if (!response.ok) {
+        throw new Error(`Worker returned ${response.status}`)
+      }
+      const body = await response.json()
+      if (body.receipt) {
+        setCloudReceipts((receipts) => [body.receipt, ...receipts.filter((receipt) => receipt.id !== body.receipt.id)])
+        setAttachmentName(body.receipt.fileName ?? 'receipt')
+      }
+      setReceiptItems(body.extractedItems ?? body.receipt?.extractedItems ?? [])
+      setReceiptLibraryStatus(`OCR retried: ${(body.extractedItems ?? []).length} items`)
+      setSyncState('Receipt OCR retried')
+    } catch (error) {
+      setReceiptLibraryStatus(error instanceof Error ? error.message : 'Receipt retry failed')
+    }
+  }
+
   const removeReceiptItem = (itemId) => {
     setReceiptItems((items) => items.filter((item) => item.id !== itemId))
   }
@@ -1607,6 +1640,7 @@ function SplitClubApp() {
     applyItemizedSplit,
     loadCloudReceipts,
     applyCloudReceipt,
+    retryCloudReceipt,
     removeReceiptItem,
     friendName,
     setFriendName,
@@ -2627,11 +2661,18 @@ function AddExpenseScreen({ state }) {
                     {receipt.ocrStatus} · {receipt.extractedItems?.length ?? 0} items · {new Date(receipt.createdAt).toLocaleDateString()}
                   </Muted>
                 </YStack>
-                <Button unstyled onPress={() => state.applyCloudReceipt(receipt.id)}>
-                  <SizableText color="#09090b" size="$2" fontWeight="900">
-                    Use
-                  </SizableText>
-                </Button>
+                <XStack gap="$3">
+                  <Button unstyled onPress={() => state.retryCloudReceipt(receipt.id)}>
+                    <SizableText color="#71717a" size="$2" fontWeight="900">
+                      Retry
+                    </SizableText>
+                  </Button>
+                  <Button unstyled onPress={() => state.applyCloudReceipt(receipt.id)}>
+                    <SizableText color="#09090b" size="$2" fontWeight="900">
+                      Use
+                    </SizableText>
+                  </Button>
+                </XStack>
               </XStack>
             ))}
           </YStack>

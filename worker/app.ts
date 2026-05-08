@@ -573,6 +573,36 @@ export function createApp() {
     return c.json({ receipt, extractedItems: extraction.items }, 201)
   })
 
+  app.post('/api/receipts/:id/retry', async (c) => {
+    const store = getStore(c.env)
+    const member = currentMember(c.get('authMember'))
+    const receipt = await store.getReceipt(c.req.param('id'), member.id)
+    if (!receipt) return c.json({ error: 'receipt_not_found', message: 'Receipt is not visible to this user.' }, 404)
+    const body = await c.req.json().catch(() => ({})) as { ocrText?: string; assignedTo?: string[] }
+    const assignedTo = Array.isArray(body.assignedTo) ? body.assignedTo.filter((id) => typeof id === 'string') : []
+    const object = body.ocrText?.trim() ? null : await c.env.RECEIPTS.get(receipt.objectKey)
+    const fileBytes = object ? await object.arrayBuffer() : new ArrayBuffer(0)
+    const extraction = await extractReceiptItems({
+      contentType: receipt.contentType,
+      fileBytes,
+      ocrText: body.ocrText?.trim() || undefined,
+      assignedTo,
+      env: c.env,
+    })
+    const updated = await store.updateReceiptExtraction(
+      receipt.id,
+      member.id,
+      {
+        ocrStatus: extraction.status,
+        ocrText: extraction.text,
+        extractedItems: extraction.items,
+      },
+      member.id,
+    )
+    await c.env.SYNC_QUEUE?.send({ type: 'receipt.ocr_retried', receiptId: receipt.id, itemCount: extraction.items.length, createdAt: new Date().toISOString() })
+    return c.json({ receipt: updated, extractedItems: extraction.items })
+  })
+
   app.get('/api/search', async (c) => {
     const query = searchSchema.parse({
       q: c.req.query('q') ?? '',

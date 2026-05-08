@@ -55,7 +55,7 @@ SplitClub should cover the following Splitwise-style capabilities:
 - Invite acceptance is verified against the authenticated member email or phone before membership is created.
 - Account controls can link/update display name, email, phone, and preferred payment method locally and through the Worker account route so invite matching uses current identity data.
 - Expense lifecycle changes now push edits, comments, deletes, and restores to the Worker while remaining non-destructive offline.
-- Receipt uploads can be stored in R2, listed from the cloud receipt library, and reused in expense creation with extracted line items.
+- Receipt uploads can be stored in R2, listed from the cloud receipt library, retried through Worker OCR, and reused in expense creation with extracted line items.
 - GitHub CI verifies web/domain checks and Android debug APK builds for pull requests, then publishes installable debug APK artifacts.
 - Recurring bills can be scheduled for reminders, posted as real expense occurrences, and advanced to their next due date.
 
@@ -63,6 +63,6 @@ SplitClub should cover the following Splitwise-style capabilities:
 
 - Production OIDC provider rollout and account linking controls.
 - Production Cloudflare resource provisioning, secret setup, and broad push-side conflict coverage beyond expense/group lifecycle mutations.
-- Receipt retry processing and stronger OCR review history.
+- Stronger OCR review history and receipt-to-expense attachment lifecycle.
 - Recurring rule history, skipped occurrences, and server-side scheduler automation.
 - Signed Android preview and release distribution.
