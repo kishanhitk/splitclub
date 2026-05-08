@@ -78,6 +78,7 @@ export type Group = {
   simplifyDebts: boolean
   defaultSplitMode: SplitMode
   defaultSplits: SplitShare[]
+  deletedAt?: string
 }
 
 export type Ledger = {

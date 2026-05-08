@@ -179,8 +179,10 @@ function SplitClubApp() {
     saveLedger(ledger).catch(() => setSyncState('Local save failed'))
   }, [ledger])
 
+  const activeGroups = useMemo(() => ledger.groups.filter((group) => !group.deletedAt), [ledger.groups])
+  const deletedGroups = useMemo(() => ledger.groups.filter((group) => group.deletedAt), [ledger.groups])
   const selectedGroup = selectedGroupId
-    ? ledger.groups.find((group) => group.id === selectedGroupId)
+    ? activeGroups.find((group) => group.id === selectedGroupId)
     : null
   const membersForGroup = selectedGroup
     ? ledger.members.filter((member) => selectedGroup.memberIds.includes(member.id))
@@ -511,6 +513,26 @@ function SplitClubApp() {
     setSyncState('Expense restored')
   }
 
+  const deleteSelectedGroup = () => {
+    if (!selectedGroup) return
+    const deletedAt = new Date().toISOString()
+    setLedger((current) => ({
+      ...current,
+      groups: current.groups.map((group) => group.id === selectedGroup.id ? { ...group, deletedAt } : group),
+    }))
+    setSelectedGroupId(null)
+    setSyncState('Group deleted')
+  }
+
+  const restoreGroup = (groupId) => {
+    setLedger((current) => ({
+      ...current,
+      groups: current.groups.map((group) => group.id === groupId ? { ...group, deletedAt: undefined } : group),
+    }))
+    setSelectedGroupId(groupId)
+    setSyncState('Group restored')
+  }
+
   const applyCurrencyConversion = () => {
     setLedger((current) => convertExpensesToCurrency(current, selectedGroupId, currency, activeUser.id))
     setSyncState(`Converted ${selectedGroup?.name ?? 'non-group expenses'} to ${currency}`)
@@ -785,6 +807,8 @@ function SplitClubApp() {
     setActiveUserId,
     selectedRole,
     selectedGroup,
+    activeGroups,
+    deletedGroups,
     selectedGroupId,
     setSelectedGroupId,
     activeTab,
@@ -802,6 +826,8 @@ function SplitClubApp() {
     addExpenseComment,
     deleteSelectedExpense,
     restoreSelectedExpense,
+    deleteSelectedGroup,
+    restoreGroup,
     moreSection,
     setMoreSection,
     query,
@@ -1169,7 +1195,7 @@ function GroupsScreen({ state }) {
       <Panel title="Groups">
         <YStack gap="$2">
           <GroupButton label="Non-group expenses" active={state.selectedGroupId === null} onPress={() => state.setSelectedGroupId(null)} />
-          {state.ledger.groups.map((group) => (
+          {state.activeGroups.map((group) => (
             <GroupButton
               key={group.id}
               label={group.name}
@@ -1180,6 +1206,18 @@ function GroupsScreen({ state }) {
           ))}
         </YStack>
       </Panel>
+
+      {state.selectedGroup ? (
+        <Panel title="Group lifecycle">
+          <YStack gap="$3">
+            <FeatureList rows={[
+              ['Delete group', 'Deletes this group for everyone and hides it from normal group lists.'],
+              ['Restore path', 'Deleted groups can be restored from More, similar to recent activity recovery.'],
+            ]} />
+            <SecondaryButton icon={<Trash2 size={16} color="#09090b" />} label="Delete group" onPress={state.deleteSelectedGroup} />
+          </YStack>
+        </Panel>
+      ) : null}
 
       <Panel title="Friends">
         <XStack fw="wrap" gap="$2">
@@ -1858,6 +1896,22 @@ function ToolsScreen({ state }) {
           <SecondaryButton icon={<Download size={16} color="#09090b" />} label="Export CSV" onPress={state.shareExport} />
           <SecondaryButton icon={<RefreshCcw size={16} color="#09090b" />} label="Reset demo" onPress={state.restoreDemo} />
         </XStack>
+      </Panel>
+      <Panel title="Deleted groups">
+        <YStack gap="$2">
+          {state.deletedGroups.map((group) => (
+            <XStack key={group.id} ai="center" jc="space-between" gap="$3" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
+              <YStack flex={1}>
+                <Text color="#09090b" fontSize={14} fontWeight="900">
+                  {group.name}
+                </Text>
+                <Muted>{group.memberIds.length} members · deleted {new Date(group.deletedAt).toLocaleDateString()}</Muted>
+              </YStack>
+              <SecondaryButton icon={<RefreshCcw size={16} color="#09090b" />} label="Restore" onPress={() => state.restoreGroup(group.id)} />
+            </XStack>
+          ))}
+          {state.deletedGroups.length === 0 ? <Muted>No deleted groups.</Muted> : null}
+        </YStack>
       </Panel>
     </>
   )

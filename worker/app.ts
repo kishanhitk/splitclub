@@ -39,7 +39,7 @@ const currentMember = (member: Member | undefined) => {
 }
 
 function scopeLedger(ledger: Ledger, userId: string): Ledger {
-  const visibleGroups = ledger.groups.filter((group) => group.memberIds.includes(userId))
+  const visibleGroups = ledger.groups.filter((group) => !group.deletedAt && group.memberIds.includes(userId))
   const visibleGroupIds = new Set(visibleGroups.map((group) => group.id))
   const visibleExpenses = ledger.expenses.filter((expense) => {
     if (expense.deletedAt) return false
@@ -192,6 +192,31 @@ export function createApp() {
     const group = await getStore(c.env).createGroup({ ...payload, memberIds: [...new Set([member.id, ...payload.memberIds])] })
     await c.env.SYNC_QUEUE?.send({ type: 'group.created', groupId: group.id, createdAt: new Date().toISOString() })
     return c.json({ group }, 201)
+  })
+
+  app.get('/api/groups/deleted', async (c) => {
+    const store = getStore(c.env)
+    const member = currentMember(c.get('authMember'))
+    return c.json({ groups: await store.listDeletedGroups(member.id) })
+  })
+
+  app.delete('/api/groups/:id', async (c) => {
+    const store = getStore(c.env)
+    const member = currentMember(c.get('authMember'))
+    await requireGroupAccess(store, member.id, c.req.param('id'))
+    const group = await store.deleteGroup(c.req.param('id'), member.id)
+    await c.env.SYNC_QUEUE?.send({ type: 'group.deleted', groupId: group.id, createdAt: new Date().toISOString() })
+    return c.json({ group })
+  })
+
+  app.post('/api/groups/:id/restore', async (c) => {
+    const store = getStore(c.env)
+    const member = currentMember(c.get('authMember'))
+    const deletedGroups = await store.listDeletedGroups(member.id)
+    if (!deletedGroups.some((group) => group.id === c.req.param('id'))) throw new AuthError('Group is not restorable by this user', 403)
+    const group = await store.restoreGroup(c.req.param('id'), member.id)
+    await c.env.SYNC_QUEUE?.send({ type: 'group.restored', groupId: group.id, createdAt: new Date().toISOString() })
+    return c.json({ group })
   })
 
   app.get('/api/groups/:id/invites', async (c) => {

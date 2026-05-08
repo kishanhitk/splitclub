@@ -190,6 +190,33 @@ describe('SplitClub Worker API', () => {
     expect(membershipBody.membership.role).toBe('viewer')
   })
 
+  test('deletes restores and hides groups from active lists', async () => {
+    const env = createEnv()
+
+    const deleteResponse = await request('/api/groups/goa', { method: 'DELETE' }, env)
+    const deleteBody = (await deleteResponse.json()) as { group: { id: string; deletedAt?: string } }
+    expect(deleteResponse.status).toBe(200)
+    expect(deleteBody.group).toMatchObject({ id: 'goa' })
+    expect(deleteBody.group.deletedAt).toBeTruthy()
+
+    const groupsResponse = await request('/api/groups', {}, env)
+    const groupsBody = (await groupsResponse.json()) as { groups: Array<{ id: string }> }
+    expect(groupsBody.groups.some((group) => group.id === 'goa')).toBe(false)
+
+    const deletedResponse = await request('/api/groups/deleted', {}, env)
+    const deletedBody = (await deletedResponse.json()) as { groups: Array<{ id: string; deletedAt?: string }> }
+    expect(deletedBody.groups).toContainEqual(expect.objectContaining({ id: 'goa' }))
+
+    const restoreResponse = await request('/api/groups/goa/restore', { method: 'POST' }, env)
+    const restoreBody = (await restoreResponse.json()) as { group: { id: string; deletedAt?: string } }
+    expect(restoreResponse.status).toBe(200)
+    expect(restoreBody.group.deletedAt).toBeUndefined()
+
+    const restoredGroupsResponse = await request('/api/groups', {}, env)
+    const restoredGroupsBody = (await restoredGroupsResponse.json()) as { groups: Array<{ id: string }> }
+    expect(restoredGroupsBody.groups.some((group) => group.id === 'goa')).toBe(true)
+  })
+
   test('uploads a receipt to R2 and returns OCR line items for review', async () => {
     const env = createEnv()
     const form = new FormData()
