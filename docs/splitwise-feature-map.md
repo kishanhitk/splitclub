@@ -57,7 +57,7 @@ SplitClub should cover the following Splitwise-style capabilities:
 - Account controls now show production OIDC readiness from the Worker, including app client readiness, Worker issuer/audience/JWKS readiness, issuer host, and required claims without exposing signing key URLs.
 - Production OIDC tokens can carry `phone_number` into newly linked member records so phone-based invite matching works when members first sign in.
 - Expense lifecycle changes now push edits, comments, deletes, and restores to the Worker while remaining non-destructive offline.
-- Receipt uploads can be stored in R2, opened from the cloud receipt library, listed with OCR review history, retried through Worker OCR, attached to saved expenses, and reused in expense creation with extracted line items.
+- Receipt uploads can be stored in R2, opened from the cloud receipt library or a saved expense detail, listed with OCR review history, retried through Worker OCR, attached to saved expenses, and reused in expense creation with extracted line items.
 - GitHub CI verifies web/domain checks and Android debug APK builds for pull requests, then publishes installable debug APK artifacts.
 - A manual Android release workflow can build, zipalign, sign, verify, and upload signed APK artifacts when release keystore secrets are configured.
 - Recurring bills can be scheduled for reminders, loaded from the Worker, posted or skipped with server-visible history, and advanced to their next due date.
@@ -65,6 +65,6 @@ SplitClub should cover the following Splitwise-style capabilities:
 ## Next Tickets
 
 - Production Cloudflare resource provisioning, secret setup, and broad push-side conflict coverage beyond expense/group lifecycle mutations.
-- Richer receipt-to-expense review affordances and direct expense-detail receipt viewer controls.
+- Richer receipt-to-expense review affordances.
 - Background scheduler automation for recurring reminders and due bill notifications.
 - Store-track Android release packaging with Play App Signing or an equivalent distribution channel.
