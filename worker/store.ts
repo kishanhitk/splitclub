@@ -284,6 +284,9 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
         })),
         recurrence: input.recurrence,
         reminderDays: input.reminderDays,
+        paymentMethod: input.paymentMethod,
+        paymentReference: input.paymentReference,
+        paymentStatus: input.paymentStatus,
         comments: [],
         history: [],
       }
@@ -368,6 +371,9 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
         notes: input.notes,
         receiptItems: [],
         recurrence: 'none',
+        paymentMethod: input.paymentMethod,
+        paymentReference: input.paymentReference,
+        paymentStatus: input.paymentStatus,
       })
       audit('settlement', expense.id, 'recorded', input)
       return expense
@@ -421,6 +427,9 @@ type ExpenseRow = {
   attachment_name?: string
   recurrence?: Expense['recurrence']
   reminder_days?: number
+  payment_method?: Expense['paymentMethod']
+  payment_reference?: string
+  payment_status?: Expense['paymentStatus']
   deleted_at?: string
 }
 
@@ -525,6 +534,9 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
     receiptItems: await listReceiptItems(row.id),
     recurrence: row.recurrence,
     reminderDays: row.reminder_days,
+    paymentMethod: row.payment_method,
+    paymentReference: row.payment_reference,
+    paymentStatus: row.payment_status,
     comments: await listComments(row.id),
     history: await listExpenseHistory(row.id),
     deletedAt: row.deleted_at,
@@ -805,7 +817,7 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
       const expenseId = input.id ?? makeId('expense')
       await db
         .prepare(
-          'INSERT INTO expenses (id, group_id, description, amount, currency, paid_by, split_mode, category, kind, date, notes, attachment_name, recurrence, reminder_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          'INSERT INTO expenses (id, group_id, description, amount, currency, paid_by, split_mode, category, kind, date, notes, attachment_name, recurrence, reminder_days, payment_method, payment_reference, payment_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         )
         .bind(
           expenseId,
@@ -822,6 +834,9 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
           input.attachmentName,
           input.recurrence,
           input.reminderDays,
+          input.paymentMethod,
+          input.paymentReference,
+          input.paymentStatus,
         )
         .run()
       await Promise.all(input.participants.map((memberId) => db.prepare('INSERT INTO expense_participants (expense_id, user_id) VALUES (?, ?)').bind(expenseId, memberId).run()))
@@ -838,7 +853,7 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
           .run()
       }
       await audit('expense', expenseId, 'created', input)
-      return toExpense({ id: expenseId, group_id: input.groupId, description: input.description, amount: input.amount, currency: input.currency, paid_by: input.paidBy, split_mode: input.splitMode, category: input.category, kind: input.kind, date: input.date, notes: input.notes, attachment_name: input.attachmentName, recurrence: input.recurrence, reminder_days: input.reminderDays })
+      return toExpense({ id: expenseId, group_id: input.groupId, description: input.description, amount: input.amount, currency: input.currency, paid_by: input.paidBy, split_mode: input.splitMode, category: input.category, kind: input.kind, date: input.date, notes: input.notes, attachment_name: input.attachmentName, recurrence: input.recurrence, reminder_days: input.reminderDays, payment_method: input.paymentMethod, payment_reference: input.paymentReference, payment_status: input.paymentStatus })
     },
     async updateExpense(expenseId, input, actorId) {
       const row = await findExpenseRow(expenseId)
@@ -861,10 +876,13 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
         receiptItems: input.receiptItems ?? existing.receiptItems ?? [],
         recurrence: input.recurrence ?? existing.recurrence ?? 'none',
         reminderDays: input.reminderDays ?? existing.reminderDays,
+        paymentMethod: input.paymentMethod ?? existing.paymentMethod,
+        paymentReference: input.paymentReference ?? existing.paymentReference,
+        paymentStatus: input.paymentStatus ?? existing.paymentStatus,
       }
       await db
         .prepare(
-          'UPDATE expenses SET group_id = ?, description = ?, amount = ?, currency = ?, paid_by = ?, split_mode = ?, category = ?, kind = ?, date = ?, notes = ?, attachment_name = ?, recurrence = ?, reminder_days = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+          'UPDATE expenses SET group_id = ?, description = ?, amount = ?, currency = ?, paid_by = ?, split_mode = ?, category = ?, kind = ?, date = ?, notes = ?, attachment_name = ?, recurrence = ?, reminder_days = ?, payment_method = ?, payment_reference = ?, payment_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
         )
         .bind(
           updated.groupId,
@@ -880,6 +898,9 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
           updated.attachmentName,
           updated.recurrence,
           updated.reminderDays,
+          updated.paymentMethod,
+          updated.paymentReference,
+          updated.paymentStatus,
           expenseId,
         )
         .run()
@@ -950,10 +971,13 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
         notes: input.notes,
         receiptItems: [],
         recurrence: 'none',
+        paymentMethod: input.paymentMethod,
+        paymentReference: input.paymentReference,
+        paymentStatus: input.paymentStatus,
       })
       await db
-        .prepare('INSERT INTO settlements (id, group_id, from_user_id, to_user_id, amount, currency, date, expense_id, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        .bind(makeId('settlement_record'), input.groupId, input.from, input.to, input.amount, input.currency, input.date, expense.id, input.notes)
+        .prepare('INSERT INTO settlements (id, group_id, from_user_id, to_user_id, amount, currency, date, expense_id, notes, payment_method, payment_reference, payment_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .bind(makeId('settlement_record'), input.groupId, input.from, input.to, input.amount, input.currency, input.date, expense.id, input.notes, input.paymentMethod, input.paymentReference, input.paymentStatus)
         .run()
       await audit('settlement', expense.id, 'recorded', input)
       return expense

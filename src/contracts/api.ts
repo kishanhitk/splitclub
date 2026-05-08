@@ -3,6 +3,8 @@ import { z } from 'zod'
 export const splitModeSchema = z.enum(['equal', 'exact', 'percent', 'shares', 'adjustment'])
 export const expenseKindSchema = z.enum(['expense', 'settlement', 'refund', 'reimbursement', 'debt'])
 export const recurrenceSchema = z.enum(['none', 'weekly', 'monthly', 'yearly'])
+export const paymentMethodSchema = z.enum(['cash', 'upi', 'venmo', 'paypal', 'bank'])
+export const paymentStatusSchema = z.enum(['recorded', 'pending', 'confirmed'])
 
 export const authUserSchema = z.object({
   id: z.string().min(1),
@@ -62,6 +64,9 @@ export const expenseSchema = z.object({
   receiptItems: z.array(receiptItemSchema).default([]),
   recurrence: recurrenceSchema.default('none'),
   reminderDays: z.number().int().nonnegative().optional(),
+  paymentMethod: paymentMethodSchema.optional(),
+  paymentReference: z.string().min(1).optional(),
+  paymentStatus: paymentStatusSchema.optional(),
 })
 
 export const expenseUpdateSchema = z.object({
@@ -81,6 +86,9 @@ export const expenseUpdateSchema = z.object({
   receiptItems: z.array(receiptItemSchema).optional(),
   recurrence: recurrenceSchema.optional(),
   reminderDays: z.number().int().nonnegative().optional(),
+  paymentMethod: paymentMethodSchema.optional(),
+  paymentReference: z.string().min(1).optional(),
+  paymentStatus: paymentStatusSchema.optional(),
 })
 
 export const groupSchema = z.object({
@@ -127,6 +135,9 @@ export const settlementSchema = z.object({
   currency: z.string().length(3).transform((value) => value.toUpperCase()),
   date: z.string().min(1),
   notes: z.string().optional(),
+  paymentMethod: paymentMethodSchema.default('cash'),
+  paymentReference: z.string().min(1).optional(),
+  paymentStatus: paymentStatusSchema.default('recorded'),
 })
 
 export const searchSchema = z.object({

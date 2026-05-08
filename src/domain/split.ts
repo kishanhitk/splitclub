@@ -1,6 +1,8 @@
 export type SplitMode = 'equal' | 'exact' | 'percent' | 'shares' | 'adjustment'
 export type ExpenseKind = 'expense' | 'settlement' | 'refund' | 'reimbursement' | 'debt'
 export type Recurrence = 'none' | 'weekly' | 'monthly' | 'yearly'
+export type PaymentMethod = 'cash' | 'upi' | 'venmo' | 'paypal' | 'bank'
+export type PaymentStatus = 'recorded' | 'pending' | 'confirmed'
 
 export type Member = {
   id: string
@@ -58,6 +60,9 @@ export type Expense = {
   receiptItems?: ReceiptItem[]
   recurrence?: Recurrence
   reminderDays?: number
+  paymentMethod?: PaymentMethod
+  paymentReference?: string
+  paymentStatus?: PaymentStatus
   comments?: ExpenseComment[]
   history?: ExpenseHistoryEvent[]
   deletedAt?: string
@@ -359,7 +364,7 @@ export function spendingTrend(ledger: Ledger, groupId?: string | null, currency 
 }
 
 export function exportCsv(ledger: Ledger) {
-  const header = ['date', 'description', 'category', 'amount', 'currency', 'paid_by', 'participants', 'group_id', 'kind', 'split_mode', 'notes']
+  const header = ['date', 'description', 'category', 'amount', 'currency', 'paid_by', 'participants', 'group_id', 'kind', 'split_mode', 'payment_method', 'payment_status', 'payment_reference', 'notes']
   const rows = ledger.expenses.filter((expense) => !expense.deletedAt).map((expense) =>
     [
       expense.date,
@@ -372,6 +377,9 @@ export function exportCsv(ledger: Ledger) {
       expense.groupId ?? 'non-group',
       expense.kind,
       expense.splitMode,
+      expense.paymentMethod ?? '',
+      expense.paymentStatus ?? '',
+      expense.paymentReference ?? '',
       expense.notes ?? '',
     ]
       .map((value) => `"${String(value).replaceAll('"', '""')}"`)

@@ -70,6 +70,8 @@ const expenseKinds = ['expense', 'refund', 'reimbursement', 'debt']
 const categories = ['Transport', 'Food', 'Lodging', 'Rent', 'Groceries', 'Utilities', 'Tickets']
 const groupRoles = ['owner', 'admin', 'member', 'viewer']
 const recurrenceOptions = ['none', 'weekly', 'monthly', 'yearly']
+const paymentMethods = ['cash', 'upi', 'venmo', 'paypal', 'bank']
+const paymentStatuses = ['recorded', 'pending', 'confirmed']
 
 const navItems = [
   { id: 'activity', label: 'Activity', icon: ReceiptText },
@@ -139,6 +141,9 @@ function SplitClubApp() {
   const [canceledRecurringIds, setCanceledRecurringIds] = useState([])
   const [notificationStatus, setNotificationStatus] = useState('Not scheduled')
   const [scheduledReminders, setScheduledReminders] = useState([])
+  const [settlementMethod, setSettlementMethod] = useState('cash')
+  const [settlementReference, setSettlementReference] = useState('')
+  const [settlementStatus, setSettlementStatus] = useState('recorded')
   const [authSession, setAuthSession] = useState(null)
   const [syncState, setSyncState] = useState('Offline ready')
 
@@ -210,6 +215,7 @@ function SplitClubApp() {
   )
 
   const memberName = (memberId) => ledger.members.find((member) => member.id === memberId)?.name ?? 'Someone'
+  const memberPreferredPayment = (memberId) => ledger.members.find((member) => member.id === memberId)?.preferredPayment ?? 'cash'
   const activeUser =
     ledger.members.find((member) => member.id === activeUserId) ??
     (authSession
@@ -717,10 +723,15 @@ function SplitClubApp() {
       splits: [{ memberId: from, value: settlementAmount }],
       category: 'Settlement',
       kind: 'settlement',
+      paymentMethod: settlementMethod,
+      paymentReference: settlementReference.trim() || undefined,
+      paymentStatus: settlementStatus,
       date: new Date().toISOString().slice(0, 10),
+      notes: `${settlementMethod.toUpperCase()} settlement recorded outside SplitClub`,
     }
     setLedger((current) => ({ ...current, expenses: [settlement, ...current.expenses] }))
     setSyncState('Settlement recorded')
+    setSettlementReference('')
   }
 
   const shareExport = () => {
@@ -830,6 +841,14 @@ function SplitClubApp() {
     scheduledReminders,
     requestReminderPermission,
     scheduleRecurringReminders,
+    settlementMethod,
+    setSettlementMethod,
+    settlementReference,
+    setSettlementReference,
+    settlementStatus,
+    setSettlementStatus,
+    paymentMethods,
+    paymentStatuses,
     upcomingRecurring,
     cancelRecurring,
     syncState,
@@ -844,6 +863,7 @@ function SplitClubApp() {
     currencies,
     applyCurrencyConversion,
     memberName,
+    memberPreferredPayment,
     addExpense,
     addSettlement,
     shareExport,
@@ -1023,6 +1043,12 @@ function ExpenseDetailScreen({ state }) {
               ['Participants', expense.participants.map(state.memberName).join(', ')],
               ['Notes', expense.notes ?? 'No notes'],
               ['Attachment', expense.attachmentName ?? 'No attachment'],
+              ...(expense.paymentMethod
+                ? [
+                    ['Payment', `${expense.paymentMethod} · ${expense.paymentStatus ?? 'recorded'}`],
+                    ['Reference', expense.paymentReference ?? 'No reference'],
+                  ]
+                : []),
             ]}
           />
           {expense.receiptItems?.length ? (
@@ -1413,6 +1439,23 @@ function BalancesScreen({ state }) {
 
       <Panel title="Settle up">
         <YStack gap="$2">
+          <Field label="Payment method">
+            <XStack gap="$1.5" fw="wrap">
+              {state.paymentMethods.map((method) => (
+                <Chip key={method} label={method.toUpperCase()} active={state.settlementMethod === method} onPress={() => state.setSettlementMethod(method)} />
+              ))}
+            </XStack>
+          </Field>
+          <Field label="Payment status">
+            <XStack gap="$1.5" fw="wrap">
+              {state.paymentStatuses.map((status) => (
+                <Chip key={status} label={status} active={state.settlementStatus === status} onPress={() => state.setSettlementStatus(status)} />
+              ))}
+            </XStack>
+          </Field>
+          <Field label="Reference">
+            <Input value={state.settlementReference} onChangeText={state.setSettlementReference} placeholder="Optional transaction note" {...inputProps} />
+          </Field>
           {state.settlements.map((settlement) => (
             <Button
               key={`${settlement.from}-${settlement.to}-${settlement.amount}`}
@@ -1421,9 +1464,12 @@ function BalancesScreen({ state }) {
             >
               <XStack ai="center" gap="$2" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
                 <Check size={16} color="#09090b" />
-                <SizableText color="#18181b" size="$3" fontWeight="800" flex={1}>
-                  {state.memberName(settlement.from)} pays {state.memberName(settlement.to)}
-                </SizableText>
+                <YStack flex={1}>
+                  <SizableText color="#18181b" size="$3" fontWeight="800">
+                    {state.memberName(settlement.from)} pays {state.memberName(settlement.to)}
+                  </SizableText>
+                  <Muted>{state.memberPreferredPayment(settlement.to)} preferred</Muted>
+                </YStack>
                 <SizableText color="#09090b" size="$3" fontWeight="900">
                   {settlement.currency} {settlement.amount.toFixed(2)}
                 </SizableText>
