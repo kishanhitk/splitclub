@@ -42,6 +42,7 @@ const splitwiseTypes: Record<string, number> = {
   friend_currency_conversion: 15,
   payment_recorded: 16,
   receipt_uploaded: 17,
+  recurring_due: 18,
 }
 
 const asRecord = (value: unknown): Record<string, unknown> =>
@@ -86,6 +87,7 @@ export function notificationTypeForEvent(event: Pick<AccountActivityEvent, 'enti
     return 'friend_added'
   }
   if (event.entityType === 'receipt') return 'receipt_uploaded'
+  if (event.entityType === 'recurring' && event.action === 'due') return 'recurring_due'
   return 'news'
 }
 
@@ -110,6 +112,7 @@ export function notificationCopyForEvent(event: AccountActivityEvent) {
   if (type === 'friend_added') return { title: 'Friend added', body: textFromPayload(event.payload, ['name']) ?? 'A friend was added.' }
   if (type === 'friend_removed') return { title: 'Friend removed', body: textFromPayload(event.payload, ['name']) ?? 'A friend was removed.' }
   if (type === 'receipt_uploaded') return { title: 'Receipt uploaded', body: textFromPayload(event.payload, ['fileName']) ?? 'A receipt was attached.' }
+  if (type === 'recurring_due') return { title: 'Recurring bill due', body: textFromPayload(event.payload, ['description']) ?? 'A recurring bill needs attention.' }
   return { title: 'Recent activity', body: textFromPayload(event.payload, ['summary']) ?? event.action }
 }
 

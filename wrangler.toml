@@ -15,6 +15,11 @@ bucket_name = "splitclub-receipts"
 binding = "SYNC_QUEUE"
 queue = "splitclub-sync"
 
+[[queues.consumers]]
+queue = "splitclub-sync"
+max_batch_size = 10
+max_batch_timeout = 30
+
 [triggers]
 crons = ["0 3 * * *"]
 

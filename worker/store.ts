@@ -121,6 +121,7 @@ export type LedgerStore = {
   updateReceiptExtraction(receiptId: string, ownerId: string, input: { ocrStatus: ReceiptRecord['ocrStatus']; ocrText?: string; extractedItems: ExtractedReceiptItem[]; source?: ReceiptReviewEvent['source'] }, actorId?: string): Promise<ReceiptRecord>
   linkReceiptToExpense(receiptId: string, ownerId: string, expenseId: string, actorId?: string): Promise<ReceiptRecord>
   listReceipts(ownerId: string): Promise<ReceiptRecord[]>
+  recordAuditEvent(input: AuditEvent): Promise<AuditEvent>
   listAuditEvents(): Promise<AuditEvent[]>
 }
 
@@ -682,6 +683,12 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
     },
     async listReceipts(ownerId) {
       return structuredClone(receipts.filter((receipt) => receipt.ownerId === ownerId).map(decorateReceipt))
+    },
+    async recordAuditEvent(input) {
+      const existing = auditEvents.find((event) => event.id === input.id)
+      if (existing) return structuredClone(existing)
+      auditEvents.unshift(structuredClone(input))
+      return structuredClone(input)
     },
     async listAuditEvents() {
       return structuredClone(auditEvents)
@@ -1687,6 +1694,13 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
         .bind(ownerId)
         .all<ReceiptRow>()
       return Promise.all(result.results.map(toReceipt))
+    },
+    async recordAuditEvent(input) {
+      await db
+        .prepare('INSERT OR IGNORE INTO audit_events (id, actor_id, entity_type, entity_id, action, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .bind(input.id, input.actorId, input.entityType, input.entityId, input.action, JSON.stringify(input.payload), input.createdAt)
+        .run()
+      return input
     },
     async listAuditEvents() {
       const result = await db.prepare('SELECT id, actor_id, entity_type, entity_id, action, payload_json, created_at FROM audit_events ORDER BY created_at DESC').all<{
