@@ -681,6 +681,11 @@ function SplitClubApp() {
 
   const removeMember = (memberId) => {
     if (!selectedGroupId) return
+    const balance = calculateBalances(ledger, selectedGroupId, currency).find((item) => item.memberId === memberId)
+    if (balance && Math.abs(balance.amount) >= 0.01) {
+      setSyncState(`Settle ${memberName(memberId)} before removing`)
+      return
+    }
     setLedger((current) => ({
       ...current,
       groups: current.groups.map((group) =>
@@ -1286,9 +1291,16 @@ function GroupsScreen({ state }) {
           {state.membersForGroup.map((member) => (
             <YStack key={member.id} bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3" gap="$2">
               <XStack jc="space-between" ai="center">
-                <Text color="#09090b" fontSize={15} fontWeight="900">
-                  {member.name}
-                </Text>
+                <YStack flex={1}>
+                  <Text color="#09090b" fontSize={15} fontWeight="900">
+                    {member.name}
+                  </Text>
+                  <Muted>
+                    {Math.abs(state.balances.find((balance) => balance.memberId === member.id)?.amount ?? 0) >= 0.01
+                      ? 'Settle before removing'
+                      : 'No group balance'}
+                  </Muted>
+                </YStack>
                 <Button unstyled onPress={() => state.removeMember(member.id)}>
                   <SizableText color="#71717a" size="$2" fontWeight="900">
                     Remove

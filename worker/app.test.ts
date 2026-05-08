@@ -188,6 +188,14 @@ describe('SplitClub Worker API', () => {
     const membershipBody = (await membershipResponse.json()) as { membership: { role: string } }
     expect(membershipResponse.status).toBe(200)
     expect(membershipBody.membership.role).toBe('viewer')
+
+    const blockedRemoveResponse = await request(`/api/groups/goa/members/dev`, { method: 'DELETE' }, env)
+    const blockedRemoveBody = (await blockedRemoveResponse.json()) as { error: string; balance: { memberId: string } }
+    expect(blockedRemoveResponse.status).toBe(409)
+    expect(blockedRemoveBody).toMatchObject({ error: 'member_has_balance', balance: { memberId: 'dev' } })
+
+    const zeroBalanceRemoveResponse = await request(`/api/groups/goa/members/${friendBody.friend.id}`, { method: 'DELETE' }, env)
+    expect(zeroBalanceRemoveResponse.status).toBe(200)
   })
 
   test('deletes restores and hides groups from active lists', async () => {
