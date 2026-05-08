@@ -39,6 +39,7 @@ import { seedLedger } from './src/data/seed'
 import {
   applyGroupDefaultSplits,
   buildPaymentHandoff,
+  buildRecurringOccurrence,
   calculateBalances,
   calculateDirectSettlements,
   calculateFriendBalanceSummaries,
@@ -1174,6 +1175,33 @@ function SplitClubApp() {
     setScheduledReminders(remaining)
   }
 
+  const postRecurringOccurrence = (sourceExpenseId) => {
+    const upcoming = upcomingRecurring.find((item) => item.sourceExpenseId === sourceExpenseId)
+    const source = ledger.expenses.find((expense) => expense.id === sourceExpenseId)
+    if (!upcoming || !source) return
+
+    const occurrence = buildRecurringOccurrence(source, {
+      id: `expense-${Date.now()}`,
+      dueDate: upcoming.dueDate,
+      createdAt: new Date().toISOString(),
+      actorId: activeUser.id,
+    })
+
+    setLedger((current) => ({
+      ...current,
+      expenses: [
+        occurrence,
+        ...current.expenses.map((expense) =>
+          expense.id === sourceExpenseId ? { ...expense, date: upcoming.dueDate } : expense,
+        ),
+      ],
+    }))
+    cancelReminderForExpense(sourceExpenseId).catch(() => undefined)
+    setSyncState('Recurring bill posted')
+    pushCloudJson('/api/expenses', occurrence, 'Recurring bill').catch(() => undefined)
+    pushCloudJson(`/api/expenses/${sourceExpenseId}`, { date: upcoming.dueDate }, 'Recurring schedule', 'PUT').catch(() => undefined)
+  }
+
   const cancelRecurring = (sourceExpenseId) => {
     setCanceledRecurringIds((ids) => [...new Set([...ids, sourceExpenseId])])
     cancelReminderForExpense(sourceExpenseId).catch(() => undefined)
@@ -1477,6 +1505,7 @@ function SplitClubApp() {
     pullCloudSync,
     resolveCloudConflict,
     upcomingRecurring,
+    postRecurringOccurrence,
     cancelRecurring,
     syncState,
     membersForGroup,
@@ -2995,6 +3024,11 @@ function RecurringBillsScreen({ state }) {
               <SizableText color="#09090b" size="$3" fontWeight="900">
                 {expense.currency} {expense.amount.toFixed(0)}
               </SizableText>
+              <Button unstyled onPress={() => state.postRecurringOccurrence(expense.sourceExpenseId)}>
+                <SizableText color="#09090b" size="$2" fontWeight="900">
+                  Post
+                </SizableText>
+              </Button>
               <Button unstyled onPress={() => state.cancelRecurring(expense.sourceExpenseId)}>
                 <SizableText color="#71717a" size="$2" fontWeight="900">
                   Cancel

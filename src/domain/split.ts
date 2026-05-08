@@ -136,6 +136,13 @@ export type UpcomingRecurringExpense = {
   recurrence: Exclude<Recurrence, 'none'>
 }
 
+export type RecurringOccurrenceInput = {
+  id: string
+  dueDate: string
+  createdAt?: string
+  actorId?: string
+}
+
 export type CurrencyExposure = {
   currency: string
   expenseCount: number
@@ -953,4 +960,24 @@ export function listUpcomingRecurringExpenses(ledger: Ledger, canceledIds: strin
         recurrence: expense.recurrence as Exclude<Recurrence, 'none'>,
       }]
     })
+}
+
+export function buildRecurringOccurrence(source: Expense, input: RecurringOccurrenceInput): Expense {
+  const createdAt = input.createdAt ?? new Date().toISOString()
+  return {
+    ...source,
+    id: input.id,
+    date: input.dueDate,
+    recurrence: 'none',
+    reminderDays: undefined,
+    notes: [source.notes, `generated-from:${source.id}`, `generated-due:${input.dueDate}`].filter(Boolean).join('\n'),
+    history: [{
+      id: `${input.id}-created`,
+      expenseId: input.id,
+      memberId: input.actorId,
+      action: 'created',
+      summary: `Recurring bill posted from ${source.description}`,
+      createdAt,
+    }],
+  }
 }
