@@ -16,7 +16,7 @@ import {
   searchSchema,
   settlementSchema,
 } from '../src/contracts/api'
-import type { Expense, Ledger, Member } from '../src/domain/split'
+import type { Expense, Group, Ledger, Member } from '../src/domain/split'
 import {
   calculateBalances,
   calculateDirectSettlements,
@@ -119,6 +119,10 @@ function expenseRevision(expense: Expense) {
   return expense.updatedAt ?? expense.deletedAt ?? expense.history?.[0]?.createdAt ?? expense.date
 }
 
+function groupRevision(group: Group) {
+  return group.updatedAt ?? group.deletedAt ?? group.name
+}
+
 function baseRevisionHeader(c: Context) {
   return c.req.header('x-splitclub-base-revision') ?? c.req.header('if-unmodified-since')
 }
@@ -136,6 +140,23 @@ function expenseConflictResponse(c: Context, expense: Expense) {
       baseRevision,
       currentRevision,
       remoteRecord: expense,
+    },
+  }, 409)
+}
+
+function groupConflictResponse(c: Context, group: Group) {
+  const baseRevision = baseRevisionHeader(c)
+  const currentRevision = groupRevision(group)
+  if (!baseRevision || !currentRevision || baseRevision === currentRevision) return null
+  return c.json({
+    error: 'group_conflict',
+    message: 'Group changed in the cloud before this mutation was pushed.',
+    conflict: {
+      entity: 'group',
+      recordId: group.id,
+      baseRevision,
+      currentRevision,
+      remoteRecord: group,
     },
   }, 409)
 }
@@ -294,7 +315,9 @@ export function createApp() {
   app.delete('/api/groups/:id', async (c) => {
     const store = getStore(c.env)
     const member = currentMember(c.get('authMember'))
-    await requireGroupAccess(store, member.id, c.req.param('id'))
+    const existing = await requireGroupAccess(store, member.id, c.req.param('id'))
+    const conflict = groupConflictResponse(c, existing)
+    if (conflict) return conflict
     const group = await store.deleteGroup(c.req.param('id'), member.id)
     await c.env.SYNC_QUEUE?.send({ type: 'group.deleted', groupId: group.id, createdAt: new Date().toISOString() })
     return c.json({ group })
@@ -304,7 +327,10 @@ export function createApp() {
     const store = getStore(c.env)
     const member = currentMember(c.get('authMember'))
     const deletedGroups = await store.listDeletedGroups(member.id)
-    if (!deletedGroups.some((group) => group.id === c.req.param('id'))) throw new AuthError('Group is not restorable by this user', 403)
+    const existing = deletedGroups.find((group) => group.id === c.req.param('id'))
+    if (!existing) throw new AuthError('Group is not restorable by this user', 403)
+    const conflict = groupConflictResponse(c, existing)
+    if (conflict) return conflict
     const group = await store.restoreGroup(c.req.param('id'), member.id)
     await c.env.SYNC_QUEUE?.send({ type: 'group.restored', groupId: group.id, createdAt: new Date().toISOString() })
     return c.json({ group })
@@ -314,6 +340,8 @@ export function createApp() {
     const store = getStore(c.env)
     const member = currentMember(c.get('authMember'))
     const group = await requireGroupAccess(store, member.id, c.req.param('id'))
+    const conflict = groupConflictResponse(c, group)
+    if (conflict) return conflict
     const payload = groupDefaultsSchema.parse(await c.req.json())
     const validation = validateGroupDefaultSplits(payload.defaultSplitMode, group.memberIds, payload.defaultSplits)
     if (!validation.valid) return c.json({ error: 'invalid_group_defaults', message: validation.message }, 400)

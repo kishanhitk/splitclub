@@ -80,6 +80,7 @@ export type Group = {
   simplifyDebts: boolean
   defaultSplitMode: SplitMode
   defaultSplits: SplitShare[]
+  updatedAt?: string
   deletedAt?: string
 }
 

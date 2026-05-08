@@ -442,11 +442,13 @@ function SplitClubApp() {
       return
     }
     const defaultSplits = groupDefaultMode === 'equal' ? [] : groupDefaultSplits
+    const baseRevision = groupRevision(selectedGroup)
+    const updatedAt = new Date().toISOString()
     setLedger((current) => ({
       ...current,
       groups: current.groups.map((group) =>
         group.id === selectedGroup.id
-          ? { ...group, simplifyDebts: groupSimplifyDebts, defaultSplitMode: groupDefaultMode, defaultSplits }
+          ? { ...group, simplifyDebts: groupSimplifyDebts, defaultSplitMode: groupDefaultMode, defaultSplits, updatedAt }
           : group,
       ),
     }))
@@ -458,7 +460,7 @@ function SplitClubApp() {
       simplifyDebts: groupSimplifyDebts,
       defaultSplitMode: groupDefaultMode,
       defaultSplits,
-    }, 'Group defaults', 'PUT').catch(() => undefined)
+    }, 'Group defaults', 'PUT', { baseRevision }).catch(() => undefined)
   }
 
   const openExpense = (expense) => {
@@ -851,23 +853,27 @@ function SplitClubApp() {
   const deleteSelectedGroup = () => {
     if (!selectedGroup) return
     const deletedAt = new Date().toISOString()
+    const baseRevision = groupRevision(selectedGroup)
     setLedger((current) => ({
       ...current,
-      groups: current.groups.map((group) => group.id === selectedGroup.id ? { ...group, deletedAt } : group),
+      groups: current.groups.map((group) => group.id === selectedGroup.id ? { ...group, deletedAt, updatedAt: deletedAt } : group),
     }))
     setSelectedGroupId(null)
     setSyncState('Group deleted')
-    pushCloudJson(`/api/groups/${selectedGroup.id}`, undefined, 'Group delete', 'DELETE').catch(() => undefined)
+    pushCloudJson(`/api/groups/${selectedGroup.id}`, undefined, 'Group delete', 'DELETE', { baseRevision }).catch(() => undefined)
   }
 
   const restoreGroup = (groupId) => {
+    const groupToRestore = ledger.groups.find((group) => group.id === groupId)
+    const baseRevision = groupRevision(groupToRestore)
+    const updatedAt = new Date().toISOString()
     setLedger((current) => ({
       ...current,
-      groups: current.groups.map((group) => group.id === groupId ? { ...group, deletedAt: undefined } : group),
+      groups: current.groups.map((group) => group.id === groupId ? { ...group, deletedAt: undefined, updatedAt } : group),
     }))
     setSelectedGroupId(groupId)
     setSyncState('Group restored')
-    pushCloudJson(`/api/groups/${groupId}/restore`, {}, 'Group restore').catch(() => undefined)
+    pushCloudJson(`/api/groups/${groupId}/restore`, {}, 'Group restore', 'POST', { baseRevision }).catch(() => undefined)
   }
 
   const applyCurrencyConversion = () => {
@@ -1955,6 +1961,10 @@ function replaceRecord(records, nextRecord) {
 
 function expenseRevision(expense) {
   return expense?.updatedAt ?? expense?.deletedAt ?? expense?.history?.[0]?.createdAt ?? expense?.date
+}
+
+function groupRevision(group) {
+  return group?.updatedAt ?? group?.deletedAt ?? group?.name
 }
 
 function syncSummaryWithConflicts(summary, conflicts) {
