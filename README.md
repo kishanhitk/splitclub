@@ -10,6 +10,7 @@ SplitClub is a free, mobile-first expense splitting app built with React Native 
 - Shared TypeScript domain logic in `src/domain`.
 - Hono Worker API in `worker/index.ts`.
 - Cloudflare-oriented storage with D1 for relational data, R2 for receipts, and Queues for sync events.
+- OIDC authentication via Expo AuthSession and Cloudflare Worker JWT verification.
 
 ## Commands
 
@@ -22,6 +23,12 @@ bun run typecheck
 bun run db:migrate:local
 bun run worker:dev
 ```
+
+## Authentication
+
+Production auth uses Expo AuthSession on Android/web and Worker-side JWT verification through issuer, audience, and JWKS configuration. Clerk is the first supported provider, while the backend remains OIDC-compatible.
+
+See `docs/authentication.md` for the required app and Worker environment variables.
 
 ## Current Scope
 

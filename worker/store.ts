@@ -1,5 +1,6 @@
 import type { Expense, Group, Ledger, Member } from '../src/domain/split'
 import type {
+  AuthUser,
   ExpenseInput,
   FriendInput,
   GroupInput,
@@ -41,11 +42,12 @@ export type AuditEvent = {
 }
 
 export type LedgerStore = {
+  ensureAuthenticatedMember(input: AuthUser): Promise<Member>
   getLedger(): Promise<Ledger>
   listMembers(): Promise<Member[]>
   createMember(input: MemberInput): Promise<Member>
   listFriends(): Promise<Member[]>
-  createFriend(input: FriendInput): Promise<Member>
+  createFriend(input: FriendInput, ownerId?: string): Promise<Member>
   listGroups(): Promise<Group[]>
   createGroup(input: GroupInput): Promise<Group>
   listGroupInvites(groupId: string): Promise<GroupInvite[]>
@@ -76,6 +78,17 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
   }
 
   return {
+    async ensureAuthenticatedMember(input) {
+      const existing = ledger.members.find((member) => member.id === input.id || (input.email && member.email === input.email))
+      if (existing) return structuredClone(existing)
+      return this.createMember({
+        id: input.id,
+        name: input.name ?? input.email ?? 'SplitClub member',
+        email: input.email,
+        avatar: input.avatar ?? input.name?.slice(0, 2).toUpperCase(),
+        preferredPayment: 'cash',
+      })
+    },
     async getLedger() {
       return structuredClone(ledger)
     },
@@ -98,7 +111,7 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
     async listFriends() {
       return structuredClone(ledger.members)
     },
-    async createFriend(input) {
+    async createFriend(input, _ownerId) {
       return this.createMember(input)
     },
     async listGroups() {
@@ -262,6 +275,15 @@ type ExpenseRow = {
   reminder_days?: number
 }
 
+const rowToMember = (row: UserRow): Member => ({
+  id: row.id,
+  name: row.name,
+  email: row.email,
+  phone: row.phone,
+  avatar: row.avatar,
+  preferredPayment: row.preferred_payment,
+})
+
 export function createD1LedgerStore(db: D1Database): LedgerStore {
   const listParticipants = async (expenseId: string) => {
     const result = await db.prepare('SELECT user_id FROM expense_participants WHERE expense_id = ?').bind(expenseId).all<{ user_id: string }>()
@@ -314,6 +336,49 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
   }
 
   return {
+    async ensureAuthenticatedMember(input) {
+      const provider = input.provider ?? 'oidc'
+      const existingIdentity = await db
+        .prepare('SELECT user_id FROM auth_identities WHERE provider = ? AND subject = ?')
+        .bind(provider, input.id)
+        .first<{ user_id: string }>()
+
+      if (existingIdentity) {
+        await db
+          .prepare('UPDATE auth_identities SET last_seen_at = CURRENT_TIMESTAMP WHERE provider = ? AND subject = ?')
+          .bind(provider, input.id)
+          .run()
+        const existingUser = await db
+          .prepare('SELECT id, name, email, phone, avatar, preferred_payment FROM users WHERE id = ? AND deleted_at IS NULL')
+          .bind(existingIdentity.user_id)
+          .first<UserRow>()
+        if (existingUser) {
+          return rowToMember(existingUser)
+        }
+      }
+
+      const emailUser = input.email
+        ? await db
+            .prepare('SELECT id, name, email, phone, avatar, preferred_payment FROM users WHERE email = ? AND deleted_at IS NULL')
+            .bind(input.email)
+            .first<UserRow>()
+        : null
+      const member: Member =
+        (emailUser ? rowToMember(emailUser) : null) ??
+        (await this.createMember({
+          id: input.id,
+          name: input.name ?? input.email ?? 'SplitClub member',
+          email: input.email,
+          avatar: input.avatar ?? input.name?.slice(0, 2).toUpperCase(),
+          preferredPayment: 'cash',
+        }))
+
+      await db
+        .prepare('INSERT OR REPLACE INTO auth_identities (provider, subject, user_id, email, last_seen_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)')
+        .bind(provider, input.id, member.id, input.email)
+        .run()
+      return member
+    },
     async getLedger() {
       return {
         members: await this.listMembers(),
@@ -353,11 +418,11 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
     async listFriends() {
       return this.listMembers()
     },
-    async createFriend(input) {
+    async createFriend(input, ownerId = 'kishan') {
       const friend = await this.createMember(input)
       await db
         .prepare('INSERT OR IGNORE INTO friendships (id, user_id, friend_id, status) VALUES (?, ?, ?, ?)')
-        .bind(makeId('friendship'), 'kishan', friend.id, 'accepted')
+        .bind(makeId('friendship'), ownerId, friend.id, 'accepted')
         .run()
       await audit('friendship', friend.id, 'created', friend)
       return friend
