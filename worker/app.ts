@@ -365,7 +365,9 @@ export function createApp() {
   app.post('/api/groups/:id/invites', async (c) => {
     const store = getStore(c.env)
     const member = currentMember(c.get('authMember'))
-    await requireGroupAccess(store, member.id, c.req.param('id'))
+    const group = await requireGroupAccess(store, member.id, c.req.param('id'))
+    const conflict = groupConflictResponse(c, group)
+    if (conflict) return conflict
     const payload = groupInviteSchema.parse({ ...(await c.req.json()), groupId: c.req.param('id'), createdBy: member.id })
     const invite = await store.createGroupInvite(payload)
     await c.env.SYNC_QUEUE?.send({ type: 'group_invite.created', inviteId: invite.id, groupId: invite.groupId, createdAt: new Date().toISOString() })
@@ -375,6 +377,12 @@ export function createApp() {
   app.post('/api/invites/:token/accept', async (c) => {
     const store = getStore(c.env)
     const member = currentMember(c.get('authMember'))
+    const body = await c.req.json().catch(() => ({})) as { groupId?: string }
+    if (body.groupId) {
+      const group = await requireGroupAccess(store, member.id, body.groupId)
+      const conflict = groupConflictResponse(c, group)
+      if (conflict) return conflict
+    }
     try {
       const result = await store.acceptGroupInvite(c.req.param('token'), member)
       await c.env.SYNC_QUEUE?.send({ type: 'group_invite.accepted', inviteId: result.invite.id, groupId: result.invite.groupId, userId: member.id, createdAt: new Date().toISOString() })
@@ -390,7 +398,9 @@ export function createApp() {
 
   app.put('/api/groups/:id/members/:userId', async (c) => {
     const store = getStore(c.env)
-    await requireGroupAccess(store, currentMember(c.get('authMember')).id, c.req.param('id'))
+    const group = await requireGroupAccess(store, currentMember(c.get('authMember')).id, c.req.param('id'))
+    const conflict = groupConflictResponse(c, group)
+    if (conflict) return conflict
     const payload = membershipSchema.parse({ ...(await c.req.json()), groupId: c.req.param('id'), userId: c.req.param('userId') })
     const membership = await store.updateMembership(payload)
     await c.env.SYNC_QUEUE?.send({ type: 'membership.updated', groupId: payload.groupId, userId: payload.userId, createdAt: new Date().toISOString() })
@@ -400,7 +410,9 @@ export function createApp() {
   app.delete('/api/groups/:id/members/:userId', async (c) => {
     const store = getStore(c.env)
     const groupId = c.req.param('id')
-    await requireGroupAccess(store, currentMember(c.get('authMember')).id, groupId)
+    const group = await requireGroupAccess(store, currentMember(c.get('authMember')).id, groupId)
+    const conflict = groupConflictResponse(c, group)
+    if (conflict) return conflict
     const ledger = await store.getLedger()
     const balance = calculateBalances(ledger, groupId, ledger.defaultCurrency).find((item) => item.memberId === c.req.param('userId'))
     if (balance && Math.abs(balance.amount) >= 0.01) {
