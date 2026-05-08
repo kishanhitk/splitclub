@@ -1,4 +1,6 @@
 import { StatusBar } from 'expo-status-bar'
+import * as AuthSession from 'expo-auth-session'
+import * as WebBrowser from 'expo-web-browser'
 import { useEffect, useMemo, useState } from 'react'
 import { Alert, Platform, SafeAreaView } from 'react-native'
 import {
@@ -8,6 +10,8 @@ import {
   CircleDollarSign,
   Download,
   Home,
+  LogIn,
+  LogOut,
   ListFilter,
   Plus,
   ReceiptText,
@@ -30,8 +34,12 @@ import {
   spendingByCategory,
   spendingTrend,
 } from './src/domain/split'
+import { getAuthProviderConfig, hasRemoteAuthConfig } from './src/auth/provider'
 import { loadLedger, resetLedger, saveLedger } from './src/storage/offline'
+import { clearSession, createLocalSession, isSessionExpired, loadSession, refreshLocalSession, saveSession } from './src/storage/session'
 import { tamaguiConfig } from './tamagui.config'
+
+WebBrowser.maybeCompleteAuthSession()
 
 const splitModes = ['equal', 'exact', 'percent', 'shares', 'adjustment']
 const currencies = ['INR', 'USD', 'EUR', 'GBP', 'SGD']
@@ -91,12 +99,29 @@ function SplitClubApp() {
   })
   const [privateBalances, setPrivateBalances] = useState(false)
   const [canceledRecurringIds, setCanceledRecurringIds] = useState([])
+  const [authSession, setAuthSession] = useState(null)
   const [syncState, setSyncState] = useState('Offline ready')
 
   useEffect(() => {
     loadLedger()
       .then(setLedger)
       .catch(() => setLedger(seedLedger))
+  }, [])
+
+  useEffect(() => {
+    loadSession()
+      .then((session) => {
+        if (!session) return
+        if (isSessionExpired(session)) {
+          clearSession().catch(() => undefined)
+          setSyncState('Session expired')
+          return
+        }
+        setAuthSession(session)
+        setActiveUserId(session.user.id)
+        setSyncState('Session restored')
+      })
+      .catch(() => setSyncState('Session restore failed'))
   }, [])
 
   useEffect(() => {
@@ -133,8 +158,123 @@ function SplitClubApp() {
   )
 
   const memberName = (memberId) => ledger.members.find((member) => member.id === memberId)?.name ?? 'Someone'
-  const activeUser = ledger.members.find((member) => member.id === activeUserId) ?? ledger.members[0]
+  const activeUser =
+    ledger.members.find((member) => member.id === activeUserId) ??
+    (authSession
+      ? {
+          id: authSession.user.id,
+          name: authSession.user.name ?? authSession.user.email ?? 'Signed-in member',
+          email: authSession.user.email,
+          avatar: authSession.user.avatar ?? 'SC',
+          preferredPayment: 'cash',
+        }
+      : ledger.members[0])
   const selectedRole = selectedGroupId ? membershipRoles[selectedGroupId]?.[activeUserId] ?? 'viewer' : 'member'
+
+  const signIn = async () => {
+    const config = getAuthProviderConfig()
+    try {
+      if (!hasRemoteAuthConfig(config)) {
+        const session = createLocalSession({
+          id: activeUser.id,
+          name: activeUser.name,
+          email: activeUser.email,
+          avatar: activeUser.avatar,
+          provider: 'local',
+        })
+        await saveSession(session)
+        setAuthSession(session)
+        setSyncState('Local session active')
+        return
+      }
+
+      const redirectUri = AuthSession.makeRedirectUri({ scheme: 'splitclub' })
+      const discovery = await AuthSession.fetchDiscoveryAsync(config.issuer)
+      const request = new AuthSession.AuthRequest({
+        clientId: config.clientId,
+        redirectUri,
+        responseType: AuthSession.ResponseType.Code,
+        scopes: config.scopes,
+        usePKCE: true,
+        extraParams: config.audience ? { audience: config.audience } : undefined,
+      })
+      const result = await request.promptAsync(discovery)
+      if (result.type !== 'success' || !result.params.code) {
+        setSyncState('Sign in canceled')
+        return
+      }
+      const token = await AuthSession.exchangeCodeAsync(
+        {
+          clientId: config.clientId,
+          code: result.params.code,
+          redirectUri,
+          extraParams: request.codeVerifier ? { code_verifier: request.codeVerifier } : undefined,
+        },
+        discovery,
+      )
+      const userInfo = discovery.userInfoEndpoint
+        ? await fetch(discovery.userInfoEndpoint, { headers: { Authorization: `Bearer ${token.accessToken}` } }).then((response) => response.json())
+        : {}
+      const session = {
+        accessToken: token.accessToken,
+        refreshToken: token.refreshToken,
+        expiresAt: new Date(Date.now() + (token.expiresIn ?? 3600) * 1000).toISOString(),
+        user: {
+          id: userInfo.sub ?? activeUser.id,
+          email: userInfo.email,
+          name: userInfo.name ?? userInfo.given_name ?? activeUser.name,
+          avatar: userInfo.picture,
+          provider: config.provider,
+        },
+      }
+      await saveSession(session)
+      setAuthSession(session)
+      setActiveUserId(session.user.id)
+      setSyncState('Signed in')
+    } catch (error) {
+      setSyncState('Sign in failed')
+      Alert.alert('Sign in failed', error instanceof Error ? error.message : 'Check auth provider configuration.')
+    }
+  }
+
+  const refreshSession = async () => {
+    if (!authSession) return
+    const config = getAuthProviderConfig()
+    try {
+      if (hasRemoteAuthConfig(config) && authSession.refreshToken) {
+        const discovery = await AuthSession.fetchDiscoveryAsync(config.issuer)
+        const token = await AuthSession.refreshAsync(
+          {
+            clientId: config.clientId,
+            refreshToken: authSession.refreshToken,
+          },
+          discovery,
+        )
+        const session = {
+          ...authSession,
+          accessToken: token.accessToken,
+          refreshToken: token.refreshToken ?? authSession.refreshToken,
+          expiresAt: new Date(Date.now() + (token.expiresIn ?? 3600) * 1000).toISOString(),
+        }
+        await saveSession(session)
+        setAuthSession(session)
+      } else {
+        const session = refreshLocalSession(authSession)
+        await saveSession(session)
+        setAuthSession(session)
+      }
+      setSyncState('Session refreshed')
+    } catch (error) {
+      setSyncState('Refresh failed')
+      Alert.alert('Refresh failed', error instanceof Error ? error.message : 'Try signing in again.')
+    }
+  }
+
+  const signOut = async () => {
+    await clearSession()
+    setAuthSession(null)
+    setSyncState('Signed out')
+  }
 
   const addExpense = () => {
     const numericAmount = Number(amount)
@@ -303,6 +443,10 @@ function SplitClubApp() {
   const appState = {
     ledger,
     activeUser,
+    authSession,
+    signIn,
+    signOut,
+    refreshSession,
     activeUserId,
     setActiveUserId,
     selectedRole,
@@ -837,10 +981,33 @@ function SettingsScreen({ state }) {
                 {state.activeUser.name}
               </Text>
               <Muted>
-                Signed in as {state.activeUser.email ?? state.activeUser.phone ?? state.activeUser.id} · {state.selectedRole}
+                {state.authSession ? 'Signed in' : 'Signed out'} · {state.activeUser.email ?? state.activeUser.phone ?? state.activeUser.id} · {state.selectedRole}
               </Muted>
             </YStack>
           </XStack>
+          <YStack bg="#f4f4f5" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3" gap="$2">
+            <XStack ai="center" jc="space-between" gap="$3">
+              <YStack flex={1}>
+                <Text color="#09090b" fontSize={14} fontWeight="900">
+                  Session
+                </Text>
+                <Muted>{state.authSession ? `Expires ${new Date(state.authSession.expiresAt).toLocaleString()}` : 'OIDC sign-in is ready for Android and web.'}</Muted>
+              </YStack>
+              <SizableText color="#09090b" size="$2" fontWeight="900">
+                {state.authSession?.user.provider ?? 'clerk'}
+              </SizableText>
+            </XStack>
+            <XStack gap="$2" fw="wrap">
+              {state.authSession ? (
+                <>
+                  <SecondaryButton icon={<RefreshCcw size={16} color="#09090b" />} label="Refresh" onPress={state.refreshSession} />
+                  <SecondaryButton icon={<LogOut size={16} color="#09090b" />} label="Sign out" onPress={state.signOut} />
+                </>
+              ) : (
+                <SecondaryButton icon={<LogIn size={16} color="#09090b" />} label="Sign in" onPress={state.signIn} />
+              )}
+            </XStack>
+          </YStack>
           <Field label="Switch profile">
             <XStack gap="$1.5" fw="wrap">
               {state.ledger.members.slice(0, 5).map((member) => (

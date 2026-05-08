@@ -4,6 +4,21 @@ export const splitModeSchema = z.enum(['equal', 'exact', 'percent', 'shares', 'a
 export const expenseKindSchema = z.enum(['expense', 'settlement', 'refund', 'reimbursement', 'debt'])
 export const recurrenceSchema = z.enum(['none', 'weekly', 'monthly', 'yearly'])
 
+export const authUserSchema = z.object({
+  id: z.string().min(1),
+  email: z.string().email().optional(),
+  name: z.string().min(1).optional(),
+  avatar: z.string().min(1).optional(),
+  provider: z.string().min(1).default('oidc'),
+})
+
+export const authSessionSchema = z.object({
+  accessToken: z.string().min(1),
+  refreshToken: z.string().min(1).optional(),
+  expiresAt: z.string().min(1),
+  user: authUserSchema,
+})
+
 export const memberSchema = z.object({
   id: z.string().min(1).optional(),
   name: z.string().min(1),
@@ -104,3 +119,5 @@ export type GroupInviteInput = z.infer<typeof groupInviteSchema>
 export type MembershipInput = z.infer<typeof membershipSchema>
 export type ExpenseInput = z.infer<typeof expenseSchema>
 export type SettlementInput = z.infer<typeof settlementSchema>
+export type AuthUser = z.infer<typeof authUserSchema>
+export type AuthSession = z.infer<typeof authSessionSchema>

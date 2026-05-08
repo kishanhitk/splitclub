@@ -15,15 +15,51 @@ function createEnv(): Bindings {
       },
     } as unknown as Queue,
     TEST_STORE: createMemoryLedgerStore(seedLedger),
+    TEST_AUTH_TOKENS: {
+      'test-kishan': { id: 'kishan', email: 'kishan@example.com', name: 'Kishan Kumar', provider: 'test' },
+      'test-outsider': { id: 'outsider', email: 'outsider@example.com', name: 'Outside User', provider: 'test' },
+    },
   }
 }
 
-async function request(path: string, init: RequestInit = {}, env = createEnv()) {
+async function request(path: string, init: RequestInit = {}, env = createEnv(), auth = true) {
   const app = createApp()
-  return app.fetch(new Request(`https://splitclub.test${path}`, init), env)
+  const headers = new Headers(init.headers)
+  if (auth) headers.set('Authorization', 'Bearer test-kishan')
+  return app.fetch(new Request(`https://splitclub.test${path}`, { ...init, headers }), env)
 }
 
 describe('SplitClub Worker API', () => {
+  test('keeps public metadata open and protects ledger routes', async () => {
+    const env = createEnv()
+
+    const healthResponse = await request('/api/health', {}, env, false)
+    expect(healthResponse.status).toBe(200)
+
+    const groupsResponse = await request('/api/groups', {}, env, false)
+    const groupsBody = (await groupsResponse.json()) as { error: string }
+    expect(groupsResponse.status).toBe(401)
+    expect(groupsBody.error).toBe('unauthorized')
+  })
+
+  test('scopes session and group access to the authenticated member', async () => {
+    const env = createEnv()
+
+    const sessionResponse = await request('/api/auth/session', {}, env)
+    const sessionBody = (await sessionResponse.json()) as { user: { id: string } }
+    expect(sessionBody.user.id).toBe('kishan')
+
+    const outsiderResponse = await request(
+      '/api/groups/goa/balances',
+      { headers: { Authorization: 'Bearer test-outsider' } },
+      env,
+      false,
+    )
+    const outsiderBody = (await outsiderResponse.json()) as { error: string }
+    expect(outsiderResponse.status).toBe(403)
+    expect(outsiderBody.error).toBe('forbidden')
+  })
+
   test('lists groups and members from the store', async () => {
     const env = createEnv()
 
