@@ -23,6 +23,23 @@ export type ReceiptItem = {
   assignedTo: string[]
 }
 
+export type ExpenseComment = {
+  id: string
+  expenseId: string
+  memberId: string
+  body: string
+  createdAt: string
+}
+
+export type ExpenseHistoryEvent = {
+  id: string
+  expenseId: string
+  memberId?: string
+  action: 'created' | 'updated' | 'commented' | 'deleted' | 'restored'
+  summary: string
+  createdAt: string
+}
+
 export type Expense = {
   id: string
   groupId: string | null
@@ -41,6 +58,9 @@ export type Expense = {
   receiptItems?: ReceiptItem[]
   recurrence?: Recurrence
   reminderDays?: number
+  comments?: ExpenseComment[]
+  history?: ExpenseHistoryEvent[]
+  deletedAt?: string
 }
 
 export type Group = {
@@ -140,7 +160,7 @@ export function convertAmount(amount: number, from: string, to: string, rates: R
 
 export function calculateBalances(ledger: Ledger, groupId?: string | null, currency = ledger.defaultCurrency): Balance[] {
   const balances = new Map<string, number>()
-  const expenses = ledger.expenses.filter((expense) => groupId === undefined || expense.groupId === groupId)
+  const expenses = ledger.expenses.filter((expense) => !expense.deletedAt && (groupId === undefined || expense.groupId === groupId))
 
   for (const expense of expenses) {
     const amount = convertAmount(expense.amount, expense.currency, currency, ledger.exchangeRates)
@@ -199,6 +219,7 @@ export function simplifyDebts(balances: Balance[], currency: string): Settlement
 export function spendingByCategory(ledger: Ledger, groupId?: string | null, currency = ledger.defaultCurrency) {
   const totals = new Map<string, number>()
   for (const expense of ledger.expenses) {
+    if (expense.deletedAt) continue
     if (expense.kind === 'settlement') continue
     if (groupId !== undefined && expense.groupId !== groupId) continue
     const amount = convertAmount(expense.amount, expense.currency, currency, ledger.exchangeRates)
@@ -211,8 +232,9 @@ export function spendingByCategory(ledger: Ledger, groupId?: string | null, curr
 
 export function searchExpenses(ledger: Ledger, query: string) {
   const normalized = query.trim().toLowerCase()
-  if (!normalized) return ledger.expenses
-  return ledger.expenses.filter((expense) => {
+  const activeExpenses = ledger.expenses.filter((expense) => !expense.deletedAt)
+  if (!normalized) return activeExpenses
+  return activeExpenses.filter((expense) => {
     const group = ledger.groups.find((candidate) => candidate.id === expense.groupId)
     const people = [expense.paidBy, ...expense.participants]
       .map((memberId) => ledger.members.find((member) => member.id === memberId)?.name)
@@ -229,6 +251,7 @@ export function searchExpenses(ledger: Ledger, query: string) {
       expense.kind,
       expense.splitMode,
       group?.name,
+      ...(expense.comments ?? []).map((comment) => comment.body),
       ...people,
     ]
       .filter(Boolean)
@@ -239,6 +262,7 @@ export function searchExpenses(ledger: Ledger, query: string) {
 export function spendingTrend(ledger: Ledger, groupId?: string | null, currency = ledger.defaultCurrency) {
   const totals = new Map<string, number>()
   for (const expense of ledger.expenses) {
+    if (expense.deletedAt) continue
     if (expense.kind === 'settlement') continue
     if (groupId !== undefined && expense.groupId !== groupId) continue
     const month = expense.date.slice(0, 7)
@@ -252,7 +276,7 @@ export function spendingTrend(ledger: Ledger, groupId?: string | null, currency 
 
 export function exportCsv(ledger: Ledger) {
   const header = ['date', 'description', 'category', 'amount', 'currency', 'paid_by', 'participants', 'group_id', 'kind', 'split_mode', 'notes']
-  const rows = ledger.expenses.map((expense) =>
+  const rows = ledger.expenses.filter((expense) => !expense.deletedAt).map((expense) =>
     [
       expense.date,
       expense.description,
@@ -297,6 +321,7 @@ export function listUpcomingRecurringExpenses(ledger: Ledger, canceledIds: strin
   )
 
   return ledger.expenses
+    .filter((expense) => !expense.deletedAt)
     .filter((expense) => expense.recurrence && expense.recurrence !== 'none')
     .filter((expense) => !canceledIds.includes(expense.id))
     .flatMap((expense): UpcomingRecurringExpense[] => {
