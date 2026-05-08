@@ -617,14 +617,17 @@ function SplitClubApp() {
       Alert.alert('Check the edit', 'Description and amount are required.')
       return
     }
+    const updatePayload = {
+      description: detailDescription.trim(),
+      amount: roundMoney(numericAmount),
+    }
     setLedger((current) => ({
       ...current,
       expenses: current.expenses.map((expense) =>
         expense.id === selectedExpense.id
           ? {
               ...expense,
-              description: detailDescription.trim(),
-              amount: roundMoney(numericAmount),
+              ...updatePayload,
               history: [
                 lifecycleEvent(expense.id, 'updated', `${activeUser.name} updated description or amount`),
                 ...(expense.history ?? []),
@@ -634,6 +637,7 @@ function SplitClubApp() {
       ),
     }))
     setSyncState('Expense updated')
+    pushCloudJson(`/api/expenses/${selectedExpense.id}`, updatePayload, 'Expense edit', 'PUT').catch(() => undefined)
   }
 
   const addExpenseComment = () => {
@@ -662,6 +666,7 @@ function SplitClubApp() {
     }))
     setCommentDraft('')
     setSyncState('Comment added')
+    pushCloudJson(`/api/expenses/${selectedExpense.id}/comments`, { body: comment.body }, 'Expense comment').catch(() => undefined)
   }
 
   const deleteSelectedExpense = () => {
@@ -683,6 +688,7 @@ function SplitClubApp() {
       ),
     }))
     setSyncState('Expense deleted')
+    pushCloudJson(`/api/expenses/${selectedExpense.id}`, undefined, 'Expense delete', 'DELETE').catch(() => undefined)
   }
 
   const restoreSelectedExpense = () => {
@@ -703,6 +709,7 @@ function SplitClubApp() {
       ),
     }))
     setSyncState('Expense restored')
+    pushCloudJson(`/api/expenses/${selectedExpense.id}/restore`, {}, 'Expense restore').catch(() => undefined)
   }
 
   const deleteSelectedGroup = () => {
