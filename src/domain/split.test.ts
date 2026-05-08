@@ -7,6 +7,8 @@ import {
   canMemberSeeBalance,
   canMemberSeeExpense,
   convertExpensesToCurrency,
+  exportCsv,
+  exportJsonBackup,
   getNextDueDate,
   getReminderDate,
   listExpenseViewers,
@@ -148,5 +150,26 @@ describe('split engine', () => {
         { memberId: 'anya', value: 0 },
       ],
     })
+  })
+
+  test('exports CSV rows and full JSON backup payloads', () => {
+    const csv = exportCsv(seedLedger)
+    expect(csv.split('\n')[0]).toContain('date,description,category')
+    expect(csv).toContain('"Beach villa"')
+    expect(csv).not.toContain('deleted')
+
+    const backup = JSON.parse(exportJsonBackup(seedLedger, '2026-05-08T00:00:00.000Z')) as {
+      app: string
+      version: number
+      exportedAt: string
+      ledger: { groups: unknown[]; expenses: unknown[] }
+    }
+    expect(backup).toMatchObject({
+      app: 'SplitClub',
+      version: 1,
+      exportedAt: '2026-05-08T00:00:00.000Z',
+    })
+    expect(backup.ledger.groups.length).toBeGreaterThan(0)
+    expect(backup.ledger.expenses.length).toBeGreaterThan(0)
   })
 })
