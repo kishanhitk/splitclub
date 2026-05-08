@@ -36,6 +36,7 @@ import { Button, Input, ScrollView, SizableText, TamaguiProvider, Text, XStack, 
 import { seedLedger } from './src/data/seed'
 import {
   calculateBalances,
+  convertExpensesToCurrency,
   exportCsv,
   listUpcomingRecurringExpenses,
   roundMoney,
@@ -43,6 +44,7 @@ import {
   simplifyDebts,
   spendingByCategory,
   spendingTrend,
+  summarizeCurrencyExposure,
 } from './src/domain/split'
 import { parseReceiptText } from './src/domain/receipts'
 import { buildReminderNotifications } from './src/notifications/reminders'
@@ -63,7 +65,7 @@ Notifications.setNotificationHandler({
 })
 
 const splitModes = ['equal', 'exact', 'percent', 'shares', 'adjustment']
-const currencies = ['INR', 'USD', 'EUR', 'GBP', 'SGD']
+const currencies = ['INR', 'USD', 'EUR', 'GBP', 'CAD', 'AUD', 'SGD', 'AED', 'JPY', 'THB', 'IDR', 'MYR', 'PHP', 'HKD', 'CHF', 'SEK', 'NOK', 'DKK', 'NZD', 'ZAR']
 const expenseKinds = ['expense', 'refund', 'reimbursement', 'debt']
 const categories = ['Transport', 'Food', 'Lodging', 'Rent', 'Groceries', 'Utilities', 'Tickets']
 const groupRoles = ['owner', 'admin', 'member', 'viewer']
@@ -79,6 +81,7 @@ const navItems = [
 
 const moreDestinations = [
   { id: 'account', label: 'Account', description: 'Profile, privacy, and sign-in', icon: UserCircle },
+  { id: 'currencies', label: 'Currencies', description: 'Rates, defaults, and group conversion', icon: CircleDollarSign },
   { id: 'recurring', label: 'Recurring', description: 'Bills and native reminder scheduling', icon: Repeat },
   { id: 'analytics', label: 'Analytics', description: 'Category spend and monthly trends', icon: BarChart3 },
   { id: 'tools', label: 'Tools', description: 'Export, restore, storage, and sync utilities', icon: Wrench },
@@ -96,7 +99,7 @@ function SplitClubApp() {
   const [ledger, setLedger] = useState(seedLedger)
   const [selectedGroupId, setSelectedGroupId] = useState('goa')
   const [activeTab, setActiveTab] = useState('activity')
-  const [moreSection, setMoreSection] = useState('account')
+  const [moreSection, setMoreSection] = useState('index')
   const [query, setQuery] = useState('')
   const [selectedExpenseId, setSelectedExpenseId] = useState(null)
   const [commentDraft, setCommentDraft] = useState('Looks good to me.')
@@ -184,6 +187,10 @@ function SplitClubApp() {
   )
   const trendTotals = useMemo(
     () => spendingTrend(ledger, selectedGroupId, currency),
+    [ledger, selectedGroupId, currency],
+  )
+  const currencyExposure = useMemo(
+    () => summarizeCurrencyExposure(ledger, selectedGroupId, currency),
     [ledger, selectedGroupId, currency],
   )
   const totalSpending = categoryTotals.reduce((sum, item) => sum + item.amount, 0)
@@ -481,6 +488,11 @@ function SplitClubApp() {
       ),
     }))
     setSyncState('Expense restored')
+  }
+
+  const applyCurrencyConversion = () => {
+    setLedger((current) => convertExpensesToCurrency(current, selectedGroupId, currency, activeUser.id))
+    setSyncState(`Converted ${selectedGroup?.name ?? 'non-group expenses'} to ${currency}`)
   }
 
   const addReceiptItem = () => {
@@ -827,7 +839,10 @@ function SplitClubApp() {
     settlements,
     categoryTotals,
     trendTotals,
+    currencyExposure,
     totalSpending,
+    currencies,
+    applyCurrencyConversion,
     memberName,
     addExpense,
     addSettlement,
@@ -1422,48 +1437,48 @@ function BalancesScreen({ state }) {
 }
 
 function MoreScreen({ state }) {
-  return (
-    <>
-      <Panel title="More">
-        <YStack gap="$2">
-          {moreDestinations.map((item) => {
-            const Icon = item.icon
-            const active = state.moreSection === item.id
-            return (
-              <Button key={item.id} unstyled onPress={() => state.setMoreSection(item.id)}>
-                <XStack
-                  ai="center"
-                  gap="$3"
-                  bg={active ? '#09090b' : '#ffffff'}
-                  borderWidth={1}
-                  borderColor={active ? '#09090b' : '#e4e4e7'}
-                  br="$3"
-                  p="$3"
-                >
-                  <YStack ai="center" jc="center" h={38} w={38} br={999} bg={active ? '#27272a' : '#f4f4f5'}>
-                    <Icon size={18} color={active ? '#ffffff' : '#09090b'} />
-                  </YStack>
-                  <YStack flex={1}>
-                    <Text color={active ? '#ffffff' : '#09090b'} fontSize={15} fontWeight="900">
-                      {item.label}
-                    </Text>
-                    <SizableText color={active ? '#d4d4d8' : '#71717a'} size="$2" lineHeight={17}>
-                      {item.description}
-                    </SizableText>
-                  </YStack>
-                  <ChevronRight size={17} color={active ? '#ffffff' : '#71717a'} />
-                </XStack>
-              </Button>
-            )
-          })}
-        </YStack>
-      </Panel>
+  const selectedDestination = moreDestinations.find((item) => item.id === state.moreSection)
+  if (selectedDestination) {
+    return (
+      <>
+        <Panel title={selectedDestination.label} actionLabel="More" onAction={() => state.setMoreSection('index')}>
+          <Muted>{selectedDestination.description}</Muted>
+        </Panel>
+        {state.moreSection === 'account' ? <AccountScreen state={state} /> : null}
+        {state.moreSection === 'currencies' ? <CurrenciesScreen state={state} /> : null}
+        {state.moreSection === 'recurring' ? <RecurringBillsScreen state={state} /> : null}
+        {state.moreSection === 'analytics' ? <AnalyticsScreen state={state} /> : null}
+        {state.moreSection === 'tools' ? <ToolsScreen state={state} /> : null}
+      </>
+    )
+  }
 
-      {state.moreSection === 'account' ? <AccountScreen state={state} /> : null}
-      {state.moreSection === 'recurring' ? <RecurringBillsScreen state={state} /> : null}
-      {state.moreSection === 'analytics' ? <AnalyticsScreen state={state} /> : null}
-      {state.moreSection === 'tools' ? <ToolsScreen state={state} /> : null}
-    </>
+  return (
+    <Panel title="More">
+      <YStack gap="$2">
+        {moreDestinations.map((item) => {
+          const Icon = item.icon
+          return (
+            <Button key={item.id} unstyled onPress={() => state.setMoreSection(item.id)}>
+              <XStack ai="center" gap="$3" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
+                <YStack ai="center" jc="center" h={38} w={38} br={999} bg="#f4f4f5">
+                  <Icon size={18} color="#09090b" />
+                </YStack>
+                <YStack flex={1}>
+                  <Text color="#09090b" fontSize={15} fontWeight="900">
+                    {item.label}
+                  </Text>
+                  <SizableText color="#71717a" size="$2" lineHeight={17}>
+                    {item.description}
+                  </SizableText>
+                </YStack>
+                <ChevronRight size={17} color="#71717a" />
+              </XStack>
+            </Button>
+          )
+        })}
+      </YStack>
+    </Panel>
   )
 }
 
@@ -1526,6 +1541,73 @@ function AccountScreen({ state }) {
         </Button>
       </YStack>
     </Panel>
+  )
+}
+
+function CurrenciesScreen({ state }) {
+  const conversionTotal = state.currencyExposure.reduce((sum, item) => sum + item.convertedAmount, 0)
+  const expenseCount = state.currencyExposure.reduce((sum, item) => sum + item.expenseCount, 0)
+  const rateDate = state.ledger.exchangeRatesUpdatedAt
+    ? new Date(state.ledger.exchangeRatesUpdatedAt).toLocaleDateString()
+    : 'Offline'
+  return (
+    <>
+      <Panel title="Currency workspace">
+        <YStack gap="$3">
+          <XStack ai="center" jc="space-between" gap="$3">
+            <YStack flex={1}>
+              <Muted>{state.selectedGroup?.name ?? 'Non-group expenses'}</Muted>
+              <Text color="#09090b" fontSize={28} lineHeight={34} fontWeight="900">
+                {state.currency} {conversionTotal.toFixed(2)}
+              </Text>
+            </YStack>
+            <YStack ai="flex-end">
+              <SizableText color="#09090b" size="$2" fontWeight="900">
+                {state.ledger.defaultCurrency}
+              </SizableText>
+              <Muted>default</Muted>
+            </YStack>
+          </XStack>
+          <FeatureList
+            rows={[
+              ['Rate source', state.ledger.exchangeRateSource ?? 'Offline reference rates'],
+              ['Updated', rateDate],
+              ['Expenses', `${expenseCount} active in scope`],
+            ]}
+          />
+        </YStack>
+      </Panel>
+
+      <Panel title="Report currency">
+        <YStack gap="$3">
+          <XStack gap="$1.5" fw="wrap">
+            {state.currencies.map((code) => (
+              <Chip key={code} label={code} active={state.currency === code} onPress={() => state.setCurrency(code)} />
+            ))}
+          </XStack>
+        </YStack>
+      </Panel>
+
+      <Panel title="Conversion preview">
+        <YStack gap="$3">
+          {state.currencyExposure.map((item) => (
+            <XStack key={item.currency} ai="center" jc="space-between" gap="$3" py="$2" borderBottomWidth={1} borderColor="#f4f4f5">
+              <YStack flex={1}>
+                <Text color="#09090b" fontSize={14} fontWeight="900">
+                  {item.currency} {item.originalAmount.toFixed(2)}
+                </Text>
+                <Muted>{item.expenseCount} expenses</Muted>
+              </YStack>
+              <SizableText color="#09090b" size="$2" fontWeight="900">
+                {state.currency} {item.convertedAmount.toFixed(2)}
+              </SizableText>
+            </XStack>
+          ))}
+          {state.currencyExposure.length === 0 ? <Muted>No active expenses in this scope.</Muted> : null}
+          <SecondaryButton icon={<CircleDollarSign size={16} color="#09090b" />} label={`Convert to ${state.currency}`} onPress={state.applyCurrencyConversion} />
+        </YStack>
+      </Panel>
+    </>
   )
 }
 
