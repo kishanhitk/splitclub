@@ -130,6 +130,11 @@ export type VisibilitySummary = {
   visibleExpenseCount: number
 }
 
+export type SplitValidation = {
+  valid: boolean
+  message: string
+}
+
 export const roundMoney = (amount: number) => Math.round((amount + Number.EPSILON) * 100) / 100
 
 const distributeRemainder = (shares: Balance[], expected: number) => {
@@ -255,6 +260,46 @@ export function convertExpensesToCurrency(
         ],
       }
     }),
+  }
+}
+
+export function normalizeDefaultSplits(memberIds: string[], splits: SplitShare[]) {
+  const values = new Map(splits.map((split) => [split.memberId, split.value]))
+  return memberIds.map((memberId) => ({ memberId, value: roundMoney(values.get(memberId) ?? 0) }))
+}
+
+export function validateGroupDefaultSplits(splitMode: SplitMode, memberIds: string[], splits: SplitShare[]): SplitValidation {
+  if (!memberIds.length) return { valid: false, message: 'Add members before saving defaults' }
+  if (splitMode === 'equal') return { valid: true, message: 'Future expenses split equally' }
+
+  const normalized = normalizeDefaultSplits(memberIds, splits)
+  const memberSet = new Set(memberIds)
+  if (splits.some((split) => !memberSet.has(split.memberId))) return { valid: false, message: 'Defaults must match current members' }
+
+  if (splitMode === 'percent') {
+    const total = roundMoney(normalized.reduce((sum, split) => sum + split.value, 0))
+    return total === 100
+      ? { valid: true, message: '100% allocated' }
+      : { valid: false, message: `${total}% allocated` }
+  }
+
+  if (splitMode === 'shares') {
+    const total = roundMoney(normalized.reduce((sum, split) => sum + split.value, 0))
+    return total > 0
+      ? { valid: true, message: `${total} shares saved` }
+      : { valid: false, message: 'Share total must be above zero' }
+  }
+
+  const total = roundMoney(normalized.reduce((sum, split) => sum + split.value, 0))
+  return total > 0
+    ? { valid: true, message: `${total.toFixed(2)} default amount saved` }
+    : { valid: false, message: 'Default amounts must be above zero' }
+}
+
+export function applyGroupDefaultSplits(group: Pick<Group, 'defaultSplitMode' | 'defaultSplits' | 'memberIds'>) {
+  return {
+    splitMode: group.defaultSplitMode,
+    splits: group.defaultSplitMode === 'equal' ? [] : normalizeDefaultSplits(group.memberIds, group.defaultSplits),
   }
 }
 

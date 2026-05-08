@@ -6,6 +6,7 @@ import {
   expenseSchema,
   expenseCommentSchema,
   expenseUpdateSchema,
+  groupDefaultsSchema,
   friendSchema,
   groupSchema,
   groupInviteSchema,
@@ -15,7 +16,7 @@ import {
   settlementSchema,
 } from '../src/contracts/api'
 import type { Ledger, Member } from '../src/domain/split'
-import { calculateBalances, simplifyDebts } from '../src/domain/split'
+import { calculateBalances, simplifyDebts, validateGroupDefaultSplits } from '../src/domain/split'
 import { mapEventToNotification } from '../src/notifications/activity'
 import { AuthError, authenticateRequest, type AuthBindings } from './auth'
 import { extractReceiptItems, type OcrBindings } from './ocr'
@@ -217,6 +218,21 @@ export function createApp() {
     const group = await store.restoreGroup(c.req.param('id'), member.id)
     await c.env.SYNC_QUEUE?.send({ type: 'group.restored', groupId: group.id, createdAt: new Date().toISOString() })
     return c.json({ group })
+  })
+
+  app.put('/api/groups/:id/defaults', async (c) => {
+    const store = getStore(c.env)
+    const member = currentMember(c.get('authMember'))
+    const group = await requireGroupAccess(store, member.id, c.req.param('id'))
+    const payload = groupDefaultsSchema.parse(await c.req.json())
+    const validation = validateGroupDefaultSplits(payload.defaultSplitMode, group.memberIds, payload.defaultSplits)
+    if (!validation.valid) return c.json({ error: 'invalid_group_defaults', message: validation.message }, 400)
+    const updated = await store.updateGroupDefaults(group.id, {
+      defaultSplitMode: payload.defaultSplitMode,
+      defaultSplits: payload.defaultSplitMode === 'equal' ? [] : payload.defaultSplits,
+    }, member.id)
+    await c.env.SYNC_QUEUE?.send({ type: 'group.defaults.updated', groupId: updated.id, createdAt: new Date().toISOString() })
+    return c.json({ group: updated })
   })
 
   app.get('/api/groups/:id/invites', async (c) => {

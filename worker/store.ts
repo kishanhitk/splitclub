@@ -6,6 +6,7 @@ import type {
   ExpenseCommentInput,
   ExpenseUpdateInput,
   FriendInput,
+  GroupDefaultsInput,
   GroupInput,
   GroupInviteInput,
   MemberInput,
@@ -67,6 +68,7 @@ export type LedgerStore = {
   createFriend(input: FriendInput, ownerId?: string): Promise<Member>
   listGroups(): Promise<Group[]>
   createGroup(input: GroupInput): Promise<Group>
+  updateGroupDefaults(groupId: string, input: GroupDefaultsInput, actorId?: string): Promise<Group>
   listDeletedGroups(memberId: string): Promise<Group[]>
   deleteGroup(groupId: string, actorId?: string): Promise<Group>
   restoreGroup(groupId: string, actorId?: string): Promise<Group>
@@ -211,6 +213,21 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
       ledger = { ...ledger, groups: [group, ...ledger.groups] }
       audit('group', group.id, 'created', group)
       return structuredClone(group)
+    },
+    async updateGroupDefaults(groupId, input, actorId) {
+      const group = ledger.groups.find((candidate) => candidate.id === groupId && !candidate.deletedAt)
+      if (!group) throw new Error('Group not found')
+      const updated = {
+        ...group,
+        defaultSplitMode: input.defaultSplitMode,
+        defaultSplits: input.defaultSplitMode === 'equal' ? [] : input.defaultSplits,
+      }
+      ledger = { ...ledger, groups: ledger.groups.map((candidate) => candidate.id === groupId ? updated : candidate) }
+      audit('group', groupId, 'defaults.updated', {
+        defaultSplitMode: updated.defaultSplitMode,
+        defaultSplits: updated.defaultSplits,
+      }, actorId)
+      return structuredClone(updated)
     },
     async listDeletedGroups(memberId) {
       return structuredClone(ledger.groups.filter((group) => group.deletedAt && group.memberIds.includes(memberId)))
@@ -754,6 +771,22 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
       await Promise.all(group.defaultSplits.map((split) => db.prepare('INSERT INTO group_default_splits (group_id, user_id, value) VALUES (?, ?, ?)').bind(group.id, split.memberId, split.value).run()))
       await audit('group', group.id, 'created', group)
       return group
+    },
+    async updateGroupDefaults(groupId, input, actorId) {
+      const row = await db
+        .prepare('SELECT id, name, emoji, category, default_currency, simplify_debts, default_split_mode, deleted_at FROM groups WHERE id = ? AND deleted_at IS NULL')
+        .bind(groupId)
+        .first<GroupRow>()
+      if (!row) throw new Error('Group not found')
+      await db.prepare('UPDATE groups SET default_split_mode = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(input.defaultSplitMode, groupId).run()
+      await db.prepare('DELETE FROM group_default_splits WHERE group_id = ?').bind(groupId).run()
+      if (input.defaultSplitMode !== 'equal') {
+        await Promise.all(input.defaultSplits.map((split) => (
+          db.prepare('INSERT INTO group_default_splits (group_id, user_id, value) VALUES (?, ?, ?)').bind(groupId, split.memberId, split.value).run()
+        )))
+      }
+      await audit('group', groupId, 'defaults.updated', input, actorId)
+      return toGroup({ ...row, default_split_mode: input.defaultSplitMode })
     },
     async listDeletedGroups(memberId) {
       const groups = await db

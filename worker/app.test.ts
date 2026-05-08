@@ -225,6 +225,52 @@ describe('SplitClub Worker API', () => {
     expect(restoredGroupsBody.groups.some((group) => group.id === 'goa')).toBe(true)
   })
 
+  test('updates group default split settings with validation', async () => {
+    const env = createEnv()
+
+    const invalidResponse = await request(
+      '/api/groups/goa/defaults',
+      {
+        method: 'PUT',
+        body: JSON.stringify({
+          defaultSplitMode: 'percent',
+          defaultSplits: [
+            { memberId: 'kishan', value: 50 },
+            { memberId: 'anya', value: 20 },
+            { memberId: 'dev', value: 20 },
+            { memberId: 'mia', value: 0 },
+          ],
+        }),
+      },
+      env,
+    )
+    const invalidBody = (await invalidResponse.json()) as { error: string; message: string }
+    expect(invalidResponse.status).toBe(400)
+    expect(invalidBody).toMatchObject({ error: 'invalid_group_defaults', message: '90% allocated' })
+
+    const response = await request(
+      '/api/groups/goa/defaults',
+      {
+        method: 'PUT',
+        body: JSON.stringify({
+          defaultSplitMode: 'percent',
+          defaultSplits: [
+            { memberId: 'kishan', value: 40 },
+            { memberId: 'anya', value: 20 },
+            { memberId: 'dev', value: 20 },
+            { memberId: 'mia', value: 20 },
+          ],
+        }),
+      },
+      env,
+    )
+    const body = (await response.json()) as { group: { defaultSplitMode: string; defaultSplits: Array<{ memberId: string; value: number }> } }
+    expect(response.status).toBe(200)
+    expect(body.group.defaultSplitMode).toBe('percent')
+    expect(body.group.defaultSplits).toContainEqual({ memberId: 'kishan', value: 40 })
+    expect(queueMessages.some((message) => JSON.stringify(message).includes('group.defaults.updated'))).toBe(true)
+  })
+
   test('uploads a receipt to R2 and returns OCR line items for review', async () => {
     const env = createEnv()
     const form = new FormData()
