@@ -74,7 +74,7 @@ export type LedgerStore = {
   restoreGroup(groupId: string, actorId?: string): Promise<Group>
   listGroupInvites(groupId: string): Promise<GroupInvite[]>
   createGroupInvite(input: GroupInviteInput): Promise<GroupInvite>
-  acceptGroupInvite(token: string, userId: string): Promise<{ invite: GroupInvite; membership: Membership }>
+  acceptGroupInvite(token: string, member: Pick<Member, 'id' | 'email' | 'phone'>): Promise<{ invite: GroupInvite; membership: Membership }>
   updateMembership(input: MembershipInput): Promise<Membership>
   removeMembership(groupId: string, userId: string): Promise<void>
   listExpenses(filters?: { groupId?: string | null; q?: string }): Promise<Expense[]>
@@ -92,6 +92,14 @@ export type LedgerStore = {
 
 const now = () => new Date().toISOString()
 const makeId = (prefix: string) => `${prefix}_${crypto.randomUUID()}`
+const assertInviteMatchesMember = (invite: GroupInvite, member: Pick<Member, 'id' | 'email' | 'phone'>) => {
+  if (invite.invitedEmail && invite.invitedEmail.toLowerCase() !== member.email?.toLowerCase()) {
+    throw new Error('Invite does not match authenticated member')
+  }
+  if (invite.invitedPhone && invite.invitedPhone !== member.phone) {
+    throw new Error('Invite does not match authenticated member')
+  }
+}
 const historySummary = (action: string, payload: unknown) => {
   if (action === 'created') return 'Expense created'
   if (action === 'updated') return 'Expense updated'
@@ -271,14 +279,15 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
       audit('group_invite', invite.id, 'created', invite)
       return structuredClone(invite)
     },
-    async acceptGroupInvite(token, userId) {
+    async acceptGroupInvite(token, member) {
       const invite = invites.find((candidate) => candidate.token === token)
       if (!invite) throw new Error('Invite not found')
       if (invite.status !== 'pending') throw new Error('Invite is not pending')
+      assertInviteMatchesMember(invite, member)
       invite.status = 'accepted'
-      invite.acceptedBy = userId
-      const membership = await this.updateMembership({ groupId: invite.groupId, userId, role: invite.role })
-      audit('group_invite', invite.id, 'accepted', invite, userId)
+      invite.acceptedBy = member.id
+      const membership = await this.updateMembership({ groupId: invite.groupId, userId: member.id, role: invite.role })
+      audit('group_invite', invite.id, 'accepted', invite, member.id)
       return { invite: structuredClone(invite), membership }
     },
     async updateMembership(input) {
@@ -891,7 +900,7 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
       await audit('group_invite', invite.id, 'created', invite)
       return invite
     },
-    async acceptGroupInvite(token, userId) {
+    async acceptGroupInvite(token, member) {
       const row = await db
         .prepare('SELECT id, group_id, invited_email, invited_phone, role, token, status, created_by, accepted_by, created_at FROM group_invites WHERE token = ?')
         .bind(token)
@@ -909,11 +918,23 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
         }>()
       if (!row) throw new Error('Invite not found')
       if (row.status !== 'pending') throw new Error('Invite is not pending')
+      assertInviteMatchesMember({
+        id: row.id,
+        groupId: row.group_id,
+        invitedEmail: row.invited_email,
+        invitedPhone: row.invited_phone,
+        role: row.role,
+        token: row.token,
+        status: row.status,
+        createdBy: row.created_by,
+        acceptedBy: row.accepted_by,
+        createdAt: row.created_at,
+      }, member)
       await db
         .prepare('UPDATE group_invites SET status = ?, accepted_by = ?, accepted_at = CURRENT_TIMESTAMP WHERE token = ?')
-        .bind('accepted', userId, token)
+        .bind('accepted', member.id, token)
         .run()
-      const membership = await this.updateMembership({ groupId: row.group_id, userId, role: row.role })
+      const membership = await this.updateMembership({ groupId: row.group_id, userId: member.id, role: row.role })
       const invite: GroupInvite = {
         id: row.id,
         groupId: row.group_id,
@@ -923,10 +944,10 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
         token: row.token,
         status: 'accepted',
         createdBy: row.created_by,
-        acceptedBy: userId,
+        acceptedBy: member.id,
         createdAt: row.created_at,
       }
-      await audit('group_invite', invite.id, 'accepted', invite, userId)
+      await audit('group_invite', invite.id, 'accepted', invite, member.id)
       return { invite, membership }
     },
     async updateMembership(input) {
