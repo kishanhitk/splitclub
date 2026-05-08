@@ -40,6 +40,7 @@ import {
   calculateBalances,
   calculateDirectSettlements,
   calculateFriendBalanceSummaries,
+  calculateReceiptItemSplits,
   convertExpensesToCurrency,
   exportCsv,
   exportJsonBackup,
@@ -244,9 +245,10 @@ function SplitClubApp() {
       : activeTab === 'settings'
       ? moreDestinations.find((item) => item.id === moreSection)?.label ?? 'More'
       : navItems.find((item) => item.id === activeTab)?.label ?? 'Activity'
+  const expenseMemberIds = membersForGroup.map((member) => member.id)
   const splitPreview = useMemo(
-    () => buildSplitPreview(Number(amount), splitMode, membersForGroup.map((member) => member.id), splitValues),
-    [amount, splitMode, membersForGroup, splitValues],
+    () => buildSplitPreview(Number(amount), splitMode, expenseMemberIds, splitValues),
+    [amount, splitMode, expenseMemberIds, splitValues],
   )
   const payerShares = useMemo(
     () => valuesToSplits(payerValuesWithFallback(payerValues, membersForGroup.map((member) => member.id), Number(amount), paidBy), membersForGroup.map((member) => member.id)),
@@ -267,7 +269,15 @@ function SplitClubApp() {
     () => validateGroupDefaultSplits(groupDefaultMode, membersForGroup.map((member) => member.id), groupDefaultSplits),
     [groupDefaultMode, membersForGroup, groupDefaultSplits],
   )
-  const itemizedTotal = receiptItems.reduce((sum, item) => sum + Number(item.amount || 0), 0)
+  const itemizedTotal = roundMoney(receiptItems.reduce((sum, item) => sum + Number(item.amount || 0), 0))
+  const itemizedSplits = useMemo(
+    () => calculateReceiptItemSplits(
+      receiptItems.map((item) => ({ ...item, amount: Number(item.amount || 0) })),
+      expenseMemberIds,
+      Number(amount),
+    ),
+    [receiptItems, expenseMemberIds, amount],
+  )
   const upcomingRecurring = useMemo(
     () => listUpcomingRecurringExpenses(ledger, canceledRecurringIds),
     [ledger, canceledRecurringIds],
@@ -694,6 +704,26 @@ function SplitClubApp() {
     setItemAmount('')
   }
 
+  const toggleReceiptItemAssignment = (itemId, memberId) => {
+    setReceiptItems((items) => items.map((item) => {
+      if (item.id !== itemId) return item
+      const assignedTo = item.assignedTo.includes(memberId)
+        ? item.assignedTo.filter((id) => id !== memberId)
+        : [...item.assignedTo, memberId]
+      return { ...item, assignedTo }
+    }))
+  }
+
+  const applyItemizedSplit = () => {
+    if (receiptItems.length === 0) {
+      Alert.alert('No receipt items', 'Add or extract receipt items first.')
+      return
+    }
+    setSplitMode('exact')
+    setSplitValues(Object.fromEntries(itemizedSplits.map((split) => [split.memberId, String(split.value)])))
+    setSyncState('Itemized split applied')
+  }
+
   const chooseReceipt = async () => {
     const result = await DocumentPicker.getDocumentAsync({
       type: ['image/*', 'application/pdf'],
@@ -1033,7 +1063,10 @@ function SplitClubApp() {
     setItemAmount,
     receiptItems,
     itemizedTotal,
+    itemizedSplits,
     addReceiptItem,
+    toggleReceiptItemAssignment,
+    applyItemizedSplit,
     removeReceiptItem,
     friendName,
     setFriendName,
@@ -1815,32 +1848,55 @@ function AddExpenseScreen({ state }) {
           <SecondaryButton icon={<Plus size={16} color="#09090b" />} label="Add receipt item" onPress={state.addReceiptItem} />
           <YStack gap="$2">
             {state.receiptItems.map((item) => (
-              <XStack key={item.id} ai="center" gap="$2" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
-                <YStack flex={1}>
-                  <Text color="#09090b" fontSize={14} fontWeight="900">
-                    {item.label}
-                  </Text>
-                  <Muted>Assigned to {item.assignedTo.map(state.memberName).join(', ')}</Muted>
-                </YStack>
-                <SizableText color="#09090b" size="$3" fontWeight="900">
-                  {state.currency} {Number(item.amount).toFixed(2)}
-                </SizableText>
-                <Button unstyled onPress={() => state.removeReceiptItem(item.id)}>
-                  <SizableText color="#71717a" size="$2" fontWeight="900">
-                    Remove
+              <YStack key={item.id} gap="$2" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
+                <XStack ai="center" gap="$2">
+                  <YStack flex={1}>
+                    <Text color="#09090b" fontSize={14} fontWeight="900">
+                      {item.label}
+                    </Text>
+                    <Muted>Assigned to {item.assignedTo.length ? item.assignedTo.map(state.memberName).join(', ') : 'everyone'}</Muted>
+                  </YStack>
+                  <SizableText color="#09090b" size="$3" fontWeight="900">
+                    {state.currency} {Number(item.amount).toFixed(2)}
                   </SizableText>
-                </Button>
+                  <Button unstyled onPress={() => state.removeReceiptItem(item.id)}>
+                    <SizableText color="#71717a" size="$2" fontWeight="900">
+                      Remove
+                    </SizableText>
+                  </Button>
+                </XStack>
+                <XStack gap="$1.5" fw="wrap">
+                  {state.membersForGroup.map((member) => (
+                    <Chip
+                      key={member.id}
+                      label={member.name}
+                      active={item.assignedTo.includes(member.id) || item.assignedTo.length === 0}
+                      onPress={() => state.toggleReceiptItemAssignment(item.id, member.id)}
+                    />
+                  ))}
+                </XStack>
+              </YStack>
+            ))}
+          </YStack>
+          <YStack bg="#f4f4f5" br="$3" p="$3" gap="$2">
+            <XStack ai="center" jc="space-between">
+              <SizableText color="#3f3f46" size="$2" fontWeight="900">
+                Itemized total
+              </SizableText>
+              <SizableText color="#09090b" size="$3" fontWeight="900">
+                {state.currency} {state.itemizedTotal.toFixed(2)}
+              </SizableText>
+            </XStack>
+            {state.itemizedSplits.map((split) => (
+              <XStack key={split.memberId} jc="space-between">
+                <Muted>{state.memberName(split.memberId)}</Muted>
+                <SizableText color="#09090b" size="$2" fontWeight="900">
+                  {state.currency} {split.value.toFixed(2)}
+                </SizableText>
               </XStack>
             ))}
           </YStack>
-          <XStack ai="center" jc="space-between" bg="#f4f4f5" br="$3" p="$3">
-            <SizableText color="#3f3f46" size="$2" fontWeight="900">
-              Itemized total
-            </SizableText>
-            <SizableText color="#09090b" size="$3" fontWeight="900">
-              {state.currency} {state.itemizedTotal.toFixed(2)}
-            </SizableText>
-          </XStack>
+          <SecondaryButton icon={<ListFilter size={16} color="#09090b" />} label="Use itemized split" onPress={state.applyItemizedSplit} />
         </YStack>
       </Panel>
     </>
