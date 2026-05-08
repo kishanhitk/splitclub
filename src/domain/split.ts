@@ -150,7 +150,51 @@ export type SplitValidation = {
   message: string
 }
 
+export type LedgerMergeSummary = {
+  membersAdded: number
+  groupsAdded: number
+  expensesAdded: number
+  localMembersPreserved: number
+  localGroupsPreserved: number
+  localExpensesPreserved: number
+}
+
 export const roundMoney = (amount: number) => Math.round((amount + Number.EPSILON) * 100) / 100
+
+function mergeById<T extends { id: string }>(localItems: T[], remoteItems: T[]) {
+  const remoteIds = new Set(remoteItems.map((item) => item.id))
+  const preserved = localItems.filter((item) => !remoteIds.has(item.id))
+  return {
+    items: [...remoteItems, ...preserved],
+    added: remoteItems.filter((item) => !localItems.some((local) => local.id === item.id)).length,
+    preserved: preserved.length,
+  }
+}
+
+export function mergeLedgers(localLedger: Ledger, remoteLedger: Ledger): { ledger: Ledger; summary: LedgerMergeSummary } {
+  const members = mergeById(localLedger.members, remoteLedger.members)
+  const groups = mergeById(localLedger.groups, remoteLedger.groups)
+  const expenses = mergeById(localLedger.expenses, remoteLedger.expenses)
+
+  return {
+    ledger: {
+      ...localLedger,
+      ...remoteLedger,
+      members: members.items,
+      groups: groups.items,
+      expenses: expenses.items,
+      exchangeRates: { ...localLedger.exchangeRates, ...remoteLedger.exchangeRates },
+    },
+    summary: {
+      membersAdded: members.added,
+      groupsAdded: groups.added,
+      expensesAdded: expenses.added,
+      localMembersPreserved: members.preserved,
+      localGroupsPreserved: groups.preserved,
+      localExpensesPreserved: expenses.preserved,
+    },
+  }
+}
 
 const distributeRemainder = (shares: Balance[], expected: number) => {
   const rounded = shares.map((share) => ({ ...share, amount: roundMoney(share.amount) }))

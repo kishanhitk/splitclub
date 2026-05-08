@@ -16,6 +16,7 @@ import {
   getReminderDate,
   listExpenseViewers,
   listUpcomingRecurringExpenses,
+  mergeLedgers,
   searchExpenses,
   simplifyDebts,
   spendingTrend,
@@ -244,5 +245,47 @@ describe('split engine', () => {
     })
     expect(backup.ledger.groups.length).toBeGreaterThan(0)
     expect(backup.ledger.expenses.length).toBeGreaterThan(0)
+  })
+
+  test('merges remote ledger data while preserving local-only records', () => {
+    const localLedger = {
+      ...seedLedger,
+      expenses: [
+        {
+          ...seedLedger.expenses[0],
+          id: 'local-only',
+          description: 'Local draft dinner',
+        },
+        ...seedLedger.expenses,
+      ],
+    }
+    const remoteLedger = {
+      ...seedLedger,
+      defaultCurrency: 'USD',
+      exchangeRates: { ...seedLedger.exchangeRates, USD: 0.013 },
+      expenses: [
+        {
+          ...seedLedger.expenses[0],
+          description: 'Remote villa update',
+        },
+        {
+          ...seedLedger.expenses[1],
+          id: 'remote-only',
+          description: 'Remote coffee run',
+        },
+      ],
+    }
+
+    const { ledger, summary } = mergeLedgers(localLedger, remoteLedger)
+
+    expect(ledger.defaultCurrency).toBe('USD')
+    expect(ledger.exchangeRates.USD).toBe(0.013)
+    expect(ledger.expenses.find((expense) => expense.id === 'e1')?.description).toBe('Remote villa update')
+    expect(ledger.expenses.find((expense) => expense.id === 'local-only')?.description).toBe('Local draft dinner')
+    expect(ledger.expenses.find((expense) => expense.id === 'remote-only')?.description).toBe('Remote coffee run')
+    expect(summary).toMatchObject({
+      expensesAdded: 1,
+      localExpensesPreserved: 5,
+    })
   })
 })

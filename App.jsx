@@ -45,6 +45,7 @@ import {
   exportCsv,
   exportJsonBackup,
   listUpcomingRecurringExpenses,
+  mergeLedgers,
   roundMoney,
   searchExpenses,
   simplifyDebts,
@@ -165,6 +166,7 @@ function SplitClubApp() {
   const [readNotificationIds, setReadNotificationIds] = useState([])
   const [authSession, setAuthSession] = useState(null)
   const [syncState, setSyncState] = useState('Offline ready')
+  const [lastCloudSync, setLastCloudSync] = useState(null)
 
   useEffect(() => {
     loadLedger()
@@ -297,6 +299,8 @@ function SplitClubApp() {
         }
       : ledger.members[0])
   const selectedRole = selectedGroupId ? membershipRoles[selectedGroupId]?.[activeUserId] ?? 'viewer' : 'member'
+  const cloudApiUrl = process.env.EXPO_PUBLIC_SPLITCLUB_API_URL?.replace(/\/$/, '') ?? ''
+  const cloudSyncReady = Boolean(cloudApiUrl && authSession)
   const selectedGroupDefaultsKey = selectedGroup
     ? `${selectedGroup.id}:${selectedGroup.defaultCurrency}:${selectedGroup.defaultSplitMode}:${selectedGroup.defaultSplits.map((split) => `${split.memberId}-${split.value}`).join('|')}`
     : 'non-group'
@@ -943,6 +947,45 @@ function SplitClubApp() {
     setSettlementReference('')
   }
 
+  const pullCloudSync = async () => {
+    if (!cloudApiUrl) {
+      setSyncState('Cloud API not configured')
+      Alert.alert('Cloud API not configured', 'Set EXPO_PUBLIC_SPLITCLUB_API_URL to enable Worker sync.')
+      return
+    }
+    if (!authSession) {
+      setSyncState('Sign in before cloud sync')
+      Alert.alert('Sign in required', 'Sign in before pulling cloud data.')
+      return
+    }
+    try {
+      const response = await fetch(`${cloudApiUrl}/api/sync`, {
+        headers: sessionHeaders(authSession),
+      })
+      if (!response.ok) {
+        setSyncState(`Cloud sync failed: ${response.status}`)
+        Alert.alert('Cloud sync failed', `Worker returned ${response.status}.`)
+        return
+      }
+      const body = await response.json()
+      if (!body.ledger) {
+        setSyncState('Cloud sync returned no ledger')
+        return
+      }
+      const { ledger: merged, summary } = mergeLedgers(ledger, body.ledger)
+      setLedger(merged)
+      setLastCloudSync({
+        at: new Date().toISOString(),
+        cursor: body.cursor ?? null,
+        ...summary,
+      })
+      setSyncState(`Cloud sync pulled ${summary.expensesAdded} expenses`)
+    } catch (error) {
+      setSyncState('Cloud sync failed')
+      Alert.alert('Cloud sync failed', error instanceof Error ? error.message : 'Check the Worker URL and auth session.')
+    }
+  }
+
   const shareExport = () => {
     const csv = exportCsv(ledger)
     if (Platform.OS === 'web') {
@@ -1096,6 +1139,10 @@ function SplitClubApp() {
     setSettlementStatus,
     paymentMethods,
     paymentStatuses,
+    cloudApiUrl,
+    cloudSyncReady,
+    lastCloudSync,
+    pullCloudSync,
     upcomingRecurring,
     cancelRecurring,
     syncState,
@@ -2351,7 +2398,7 @@ function ToolsScreen({ state }) {
             ['Currency conversion', 'Group and friend balances in selected currency.'],
             ['CSV export', 'Download spreadsheet-ready expense and settlement history.'],
             ['Full backup', 'Download a complete JSON ledger backup for account portability.'],
-            ['Offline sync', 'Local-first ledger with future D1 conflict-safe sync.'],
+            ['Offline sync', 'Local-first ledger with D1 pull sync.'],
           ]}
         />
         <XStack gap="$2" mt="$2">
@@ -2359,6 +2406,26 @@ function ToolsScreen({ state }) {
           <SecondaryButton icon={<Download size={16} color="#09090b" />} label="Full backup" onPress={state.shareBackup} />
           <SecondaryButton icon={<RefreshCcw size={16} color="#09090b" />} label="Reset demo" onPress={state.restoreDemo} />
         </XStack>
+      </Panel>
+      <Panel title="Cloud sync">
+        <YStack gap="$3">
+          <FeatureList
+            rows={[
+              ['Worker API', state.cloudApiUrl || 'Not configured'],
+              ['Session', state.authSession ? `${state.authSession.user.provider} · ${state.authSession.user.id}` : 'Signed out'],
+              ['Last pull', state.lastCloudSync ? new Date(state.lastCloudSync.at).toLocaleString() : 'Never'],
+            ]}
+          />
+          {state.lastCloudSync ? (
+            <FeatureList
+              rows={[
+                ['Remote adds', `${state.lastCloudSync.membersAdded} members · ${state.lastCloudSync.groupsAdded} groups · ${state.lastCloudSync.expensesAdded} expenses`],
+                ['Local kept', `${state.lastCloudSync.localMembersPreserved} members · ${state.lastCloudSync.localGroupsPreserved} groups · ${state.lastCloudSync.localExpensesPreserved} expenses`],
+              ]}
+            />
+          ) : null}
+          <SecondaryButton icon={<RefreshCcw size={16} color="#09090b" />} label={state.cloudSyncReady ? 'Pull cloud ledger' : 'Check cloud sync'} onPress={state.pullCloudSync} />
+        </YStack>
       </Panel>
       <Panel title="Deleted groups">
         <YStack gap="$2">
