@@ -391,6 +391,11 @@ function SplitClubApp() {
     setSplitValues(splitsToValues(defaultSplits, selectedGroup.memberIds, groupDefaultMode, Number(amount)))
     setSyncState('Group defaults saved')
     setGroupSettingsOpen(false)
+    pushCloudJson(`/api/groups/${selectedGroup.id}/defaults`, {
+      simplifyDebts: groupSimplifyDebts,
+      defaultSplitMode: groupDefaultMode,
+      defaultSplits,
+    }, 'Group defaults', 'PUT').catch(() => undefined)
   }
 
   const openExpense = (expense) => {
@@ -509,16 +514,16 @@ function SplitClubApp() {
     setSyncState('Signed out')
   }
 
-  const pushCloudJson = async (path, payload, label) => {
+  const pushCloudJson = async (path, payload, label, method = 'POST') => {
     if (!cloudSyncReady) return
     try {
       const response = await fetch(`${cloudApiUrl}${path}`, {
-        method: 'POST',
+        method,
         headers: {
           ...sessionHeaders(authSession),
-          'content-type': 'application/json',
+          ...(payload === undefined ? {} : { 'content-type': 'application/json' }),
         },
-        body: JSON.stringify(payload),
+        body: payload === undefined ? undefined : JSON.stringify(payload),
       })
       if (!response.ok) {
         throw new Error(`Worker returned ${response.status}`)
@@ -695,6 +700,7 @@ function SplitClubApp() {
     }))
     setSelectedGroupId(null)
     setSyncState('Group deleted')
+    pushCloudJson(`/api/groups/${selectedGroup.id}`, undefined, 'Group delete', 'DELETE').catch(() => undefined)
   }
 
   const restoreGroup = (groupId) => {
@@ -704,6 +710,7 @@ function SplitClubApp() {
     }))
     setSelectedGroupId(groupId)
     setSyncState('Group restored')
+    pushCloudJson(`/api/groups/${groupId}/restore`, {}, 'Group restore').catch(() => undefined)
   }
 
   const applyCurrencyConversion = () => {
@@ -839,6 +846,7 @@ function SplitClubApp() {
     }
     setLedger((current) => ({ ...current, members: [friend, ...current.members] }))
     setSyncState('Friend added')
+    pushCloudJson('/api/friends', friend, 'Friend').catch(() => undefined)
   }
 
   const createInvite = () => {
@@ -846,18 +854,20 @@ function SplitClubApp() {
       Alert.alert('Invite needs a group and email', 'Choose a group and add an email.')
       return
     }
-    setPendingInvites((invites) => [
-      {
-        id: `invite-${Date.now()}`,
-        groupId: selectedGroupId,
-        invitedEmail: inviteEmail.trim(),
-        role: inviteRole,
-        status: 'pending',
-        token: `join_${Date.now()}`,
-      },
-      ...invites,
-    ])
+    const invite = {
+      id: `invite-${Date.now()}`,
+      groupId: selectedGroupId,
+      invitedEmail: inviteEmail.trim(),
+      role: inviteRole,
+      status: 'pending',
+      token: `join_${Date.now()}`,
+    }
+    setPendingInvites((invites) => [invite, ...invites])
     setSyncState('Invite created')
+    pushCloudJson(`/api/groups/${selectedGroupId}/invites`, {
+      invitedEmail: invite.invitedEmail,
+      role: invite.role,
+    }, 'Group invite').catch(() => undefined)
   }
 
   const setMemberRole = (memberId, role) => {
@@ -870,6 +880,9 @@ function SplitClubApp() {
       },
     }))
     setSyncState('Permissions updated')
+    pushCloudJson(`/api/groups/${selectedGroupId}/members/${memberId}`, {
+      role,
+    }, 'Member role', 'PUT').catch(() => undefined)
   }
 
   const removeMember = (memberId) => {
@@ -886,6 +899,7 @@ function SplitClubApp() {
       ),
     }))
     setSyncState('Member removed')
+    pushCloudJson(`/api/groups/${selectedGroupId}/members/${memberId}`, undefined, 'Member removal', 'DELETE').catch(() => undefined)
   }
 
   const requestReminderPermission = async () => {
