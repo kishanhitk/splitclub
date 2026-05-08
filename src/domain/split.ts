@@ -483,6 +483,15 @@ export function exportCsv(ledger: Ledger) {
   return [header.join(','), ...rows].join('\n')
 }
 
+export function exportJsonBackup(ledger: Ledger, exportedAt = new Date().toISOString()) {
+  return JSON.stringify({
+    app: 'SplitClub',
+    version: 1,
+    exportedAt,
+    ledger,
+  }, null, 2)
+}
+
 export function getNextDueDate(date: string, recurrence: Recurrence): string | undefined {
   if (recurrence === 'none') return undefined
   const due = new Date(`${date}T00:00:00.000Z`)

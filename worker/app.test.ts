@@ -271,6 +271,28 @@ describe('SplitClub Worker API', () => {
     expect(queueMessages.some((message) => JSON.stringify(message).includes('group.defaults.updated'))).toBe(true)
   })
 
+  test('exports scoped CSV and JSON backup files', async () => {
+    const env = createEnv()
+
+    const csvResponse = await request('/api/export?format=csv', {}, env)
+    const csv = await csvResponse.text()
+    expect(csvResponse.status).toBe(200)
+    expect(csvResponse.headers.get('content-type')).toContain('text/csv')
+    expect(csvResponse.headers.get('content-disposition')).toContain('splitclub-export.csv')
+    expect(csv).toContain('date,description,category')
+    expect(csv).toContain('"Beach villa"')
+
+    const jsonResponse = await request('/api/export?format=json', {}, env)
+    const backup = (await jsonResponse.json()) as { app: string; ledger: { groups: Array<{ id: string }> } }
+    expect(jsonResponse.status).toBe(200)
+    expect(jsonResponse.headers.get('content-disposition')).toContain('splitclub-backup.json')
+    expect(backup.app).toBe('SplitClub')
+    expect(backup.ledger.groups.map((group) => group.id)).toContain('goa')
+
+    const invalidResponse = await request('/api/export?format=xlsx', {}, env)
+    expect(invalidResponse.status).toBe(400)
+  })
+
   test('uploads a receipt to R2 and returns OCR line items for review', async () => {
     const env = createEnv()
     const form = new FormData()

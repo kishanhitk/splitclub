@@ -16,7 +16,7 @@ import {
   settlementSchema,
 } from '../src/contracts/api'
 import type { Ledger, Member } from '../src/domain/split'
-import { calculateBalances, simplifyDebts, validateGroupDefaultSplits } from '../src/domain/split'
+import { calculateBalances, exportCsv, exportJsonBackup, simplifyDebts, validateGroupDefaultSplits } from '../src/domain/split'
 import { mapEventToNotification } from '../src/notifications/activity'
 import { AuthError, authenticateRequest, type AuthBindings } from './auth'
 import { extractReceiptItems, type OcrBindings } from './ocr'
@@ -482,6 +482,28 @@ export function createApp() {
       .map((event) => mapEventToNotification(event))
       .slice(0, limit)
     return c.json({ notifications })
+  })
+
+  app.get('/api/export', async (c) => {
+    const store = getStore(c.env)
+    const member = currentMember(c.get('authMember'))
+    const ledger = scopeLedger(await store.getLedger(), member.id)
+    const format = c.req.query('format') ?? 'csv'
+    if (format === 'json') {
+      return new Response(exportJsonBackup(ledger), {
+        headers: {
+          'content-type': 'application/json; charset=utf-8',
+          'content-disposition': 'attachment; filename="splitclub-backup.json"',
+        },
+      })
+    }
+    if (format !== 'csv') return c.json({ error: 'validation_error', message: 'format must be csv or json' }, 400)
+    return new Response(exportCsv(ledger), {
+      headers: {
+        'content-type': 'text/csv; charset=utf-8',
+        'content-disposition': 'attachment; filename="splitclub-export.csv"',
+      },
+    })
   })
 
   return app

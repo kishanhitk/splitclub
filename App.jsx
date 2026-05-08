@@ -40,6 +40,7 @@ import {
   calculateBalances,
   convertExpensesToCurrency,
   exportCsv,
+  exportJsonBackup,
   listUpcomingRecurringExpenses,
   roundMoney,
   searchExpenses,
@@ -874,10 +875,21 @@ function SplitClubApp() {
   const shareExport = () => {
     const csv = exportCsv(ledger)
     if (Platform.OS === 'web') {
-      setSyncState(`CSV ready: ${csv.split('\n').length - 1} rows`)
+      downloadTextFile(`splitclub-export-${date}.csv`, csv, 'text/csv')
+      setSyncState(`CSV downloaded: ${csv.split('\n').length - 1} rows`)
       return
     }
     Alert.alert('CSV export ready', `${csv.split('\n').length - 1} rows prepared.`)
+  }
+
+  const shareBackup = () => {
+    const backup = exportJsonBackup(ledger)
+    if (Platform.OS === 'web') {
+      downloadTextFile(`splitclub-backup-${date}.json`, backup, 'application/json')
+      setSyncState('Full backup downloaded')
+      return
+    }
+    Alert.alert('Backup ready', 'A full JSON backup was prepared.')
   }
 
   const restoreDemo = async () => {
@@ -1025,6 +1037,7 @@ function SplitClubApp() {
     addExpense,
     addSettlement,
     shareExport,
+    shareBackup,
     restoreDemo,
   }
 
@@ -1174,6 +1187,20 @@ function defaultValueUnit(splitMode) {
   if (splitMode === 'percent') return 'Percent'
   if (splitMode === 'shares') return 'Shares'
   return 'Amount'
+}
+
+function downloadTextFile(fileName, contents, mimeType) {
+  if (typeof document === 'undefined') return
+  const blob = new Blob([contents], { type: `${mimeType};charset=utf-8` })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  link.rel = 'noopener'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
 }
 
 function ActivityScreen({ state }) {
@@ -2119,12 +2146,14 @@ function ToolsScreen({ state }) {
           rows={[
             ['Receipt storage', 'R2-backed attachments and OCR pipeline.'],
             ['Currency conversion', 'Group and friend balances in selected currency.'],
-            ['CSV export', 'Spreadsheet-ready expense and settlement history.'],
+            ['CSV export', 'Download spreadsheet-ready expense and settlement history.'],
+            ['Full backup', 'Download a complete JSON ledger backup for account portability.'],
             ['Offline sync', 'Local-first ledger with future D1 conflict-safe sync.'],
           ]}
         />
         <XStack gap="$2" mt="$2">
           <SecondaryButton icon={<Download size={16} color="#09090b" />} label="Export CSV" onPress={state.shareExport} />
+          <SecondaryButton icon={<Download size={16} color="#09090b" />} label="Full backup" onPress={state.shareBackup} />
           <SecondaryButton icon={<RefreshCcw size={16} color="#09090b" />} label="Reset demo" onPress={state.restoreDemo} />
         </XStack>
       </Panel>
