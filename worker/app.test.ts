@@ -42,6 +42,12 @@ describe('SplitClub Worker API', () => {
     const healthResponse = await request('/api/health', {}, env, false)
     expect(healthResponse.status).toBe(200)
 
+    const inviteLandingResponse = await request('/invite/join_public', {}, env, false)
+    const inviteLandingHtml = await inviteLandingResponse.text()
+    expect(inviteLandingResponse.status).toBe(200)
+    expect(inviteLandingHtml).toContain('SplitClub invite')
+    expect(inviteLandingHtml).toContain('join_public')
+
     const groupsResponse = await request('/api/groups', {}, env, false)
     const groupsBody = (await groupsResponse.json()) as { error: string }
     expect(groupsResponse.status).toBe(401)

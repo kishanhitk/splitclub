@@ -4,7 +4,7 @@ import * as DocumentPicker from 'expo-document-picker'
 import * as Notifications from 'expo-notifications'
 import * as WebBrowser from 'expo-web-browser'
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Linking, Platform, SafeAreaView } from 'react-native'
+import { Alert, Linking, Platform, SafeAreaView, Share } from 'react-native'
 import {
   BarChart3,
   Bell,
@@ -25,6 +25,7 @@ import {
   Repeat,
   Search,
   Settings,
+  Share2,
   ShieldCheck,
   TrendingUp,
   Trash2,
@@ -891,6 +892,43 @@ function SplitClubApp() {
     }, 'Group invite').catch(() => undefined)
   }
 
+  const buildInviteLink = (invite) => {
+    const encodedToken = encodeURIComponent(invite.token)
+    if (cloudApiUrl) return `${cloudApiUrl}/invite/${encodedToken}`
+    return `splitclub://invite/${encodedToken}`
+  }
+
+  const shareInvite = async (inviteId) => {
+    const invite = pendingInvites.find((candidate) => candidate.id === inviteId)
+    if (!invite) return
+    const group = ledger.groups.find((candidate) => candidate.id === invite.groupId)
+    const link = buildInviteLink(invite)
+    const message = `Join ${group?.name ?? 'SplitClub'} on SplitClub: ${link}\nInvite token: ${invite.token}`
+
+    try {
+      if (Platform.OS === 'web') {
+        if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(message)
+          setSyncState('Invite link copied')
+          return
+        }
+        if (typeof navigator !== 'undefined' && navigator.share) {
+          await navigator.share({ title: 'SplitClub invite', text: message, url: link })
+          setSyncState('Invite shared')
+          return
+        }
+        Alert.alert('Invite link', message)
+        setSyncState('Invite link ready')
+        return
+      }
+      await Share.share({ title: 'SplitClub invite', message, url: link })
+      setSyncState('Invite shared')
+    } catch (error) {
+      setSyncState('Invite share failed')
+      Alert.alert('Invite share failed', error instanceof Error ? error.message : message)
+    }
+  }
+
   const acceptInvite = (inviteId) => {
     const invite = pendingInvites.find((candidate) => candidate.id === inviteId)
     if (!invite || invite.status !== 'pending') return
@@ -1259,6 +1297,7 @@ function SplitClubApp() {
     setInviteRole,
     pendingInvites,
     createInvite,
+    shareInvite,
     acceptInvite,
     membershipRoles,
     setMemberRole,
@@ -1754,9 +1793,12 @@ function GroupsScreen({ state }) {
                       {invite.acceptedBy ? ` by ${state.memberName(invite.acceptedBy)}` : ''} · {invite.token}
                     </Muted>
                   </YStack>
-                  {invite.status === 'pending' ? (
-                    <SecondaryButton icon={<Check size={16} color="#09090b" />} label="Accept" onPress={() => state.acceptInvite(invite.id)} />
-                  ) : null}
+                  <XStack gap="$2" fw="wrap" jc="flex-end">
+                    <SecondaryButton icon={<Share2 size={16} color="#09090b" />} label="Share" onPress={() => state.shareInvite(invite.id)} />
+                    {invite.status === 'pending' ? (
+                      <SecondaryButton icon={<Check size={16} color="#09090b" />} label="Accept" onPress={() => state.acceptInvite(invite.id)} />
+                    ) : null}
+                  </XStack>
                 </XStack>
               ))}
               {state.pendingInvites.length === 0 ? <Muted>No pending invites.</Muted> : null}

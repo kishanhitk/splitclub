@@ -156,6 +156,36 @@ export function createApp() {
     }),
   )
 
+  app.get('/invite/:token', (c) => {
+    const token = c.req.param('token').replace(/[&<>"']/g, (char) => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;',
+    })[char] ?? char)
+    return c.html(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SplitClub invite</title>
+    <style>
+      body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; color: #09090b; background: #fafafa; }
+      main { max-width: 560px; margin: 0 auto; padding: 48px 20px; }
+      code { display: inline-block; padding: 8px 10px; border: 1px solid #e4e4e7; border-radius: 8px; background: #fff; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>SplitClub invite</h1>
+      <p>Open SplitClub and accept this invite token.</p>
+      <code>${token}</code>
+    </main>
+  </body>
+</html>`)
+  })
+
   app.use('/api/*', async (c, next) => {
     const store = getStore(c.env)
     const authUser = await authenticateRequest(c.req.raw, c.env)
