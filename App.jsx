@@ -36,6 +36,7 @@ import {
 import { Button, Input, ScrollView, SizableText, TamaguiProvider, Text, XStack, YStack } from 'tamagui'
 import { seedLedger } from './src/data/seed'
 import {
+  applyGroupDefaultSplits,
   calculateBalances,
   convertExpensesToCurrency,
   exportCsv,
@@ -47,6 +48,7 @@ import {
   spendingTrend,
   summarizeCurrencyExposure,
   summarizeVisibility,
+  validateGroupDefaultSplits,
 } from './src/domain/split'
 import { parseReceiptText } from './src/domain/receipts'
 import { buildReminderNotifications } from './src/notifications/reminders'
@@ -113,6 +115,7 @@ function SplitClubApp() {
   const [detailDescription, setDetailDescription] = useState('')
   const [detailAmount, setDetailAmount] = useState('')
   const [splitMode, setSplitMode] = useState('equal')
+  const [splitValues, setSplitValues] = useState({})
   const [amount, setAmount] = useState('3600')
   const [description, setDescription] = useState('Airport cab')
   const [currency, setCurrency] = useState('INR')
@@ -138,6 +141,9 @@ function SplitClubApp() {
   const [inviteEmail, setInviteEmail] = useState('rhea@example.com')
   const [inviteRole, setInviteRole] = useState('member')
   const [pendingInvites, setPendingInvites] = useState([])
+  const [groupSettingsOpen, setGroupSettingsOpen] = useState(false)
+  const [groupDefaultMode, setGroupDefaultMode] = useState('equal')
+  const [groupDefaultValues, setGroupDefaultValues] = useState({})
   const [membershipRoles, setMembershipRoles] = useState({
     goa: { kishan: 'owner', anya: 'member', dev: 'member', mia: 'viewer' },
     flat: { kishan: 'owner', anya: 'admin', dev: 'member' },
@@ -218,12 +224,22 @@ function SplitClubApp() {
   const totalSpending = categoryTotals.reduce((sum, item) => sum + item.amount, 0)
   const currentTitle = selectedExpense
     ? 'Expense'
-    : activeTab === 'settings'
+    : groupSettingsOpen
+      ? 'Group settings'
+      : activeTab === 'settings'
       ? moreDestinations.find((item) => item.id === moreSection)?.label ?? 'More'
       : navItems.find((item) => item.id === activeTab)?.label ?? 'Activity'
   const splitPreview = useMemo(
-    () => buildSplitPreview(Number(amount), splitMode, membersForGroup.map((member) => member.id)),
-    [amount, splitMode, membersForGroup],
+    () => buildSplitPreview(Number(amount), splitMode, membersForGroup.map((member) => member.id), splitValues),
+    [amount, splitMode, membersForGroup, splitValues],
+  )
+  const groupDefaultSplits = useMemo(
+    () => valuesToSplits(groupDefaultValues, membersForGroup.map((member) => member.id)),
+    [groupDefaultValues, membersForGroup],
+  )
+  const groupDefaultValidation = useMemo(
+    () => validateGroupDefaultSplits(groupDefaultMode, membersForGroup.map((member) => member.id), groupDefaultSplits),
+    [groupDefaultMode, membersForGroup, groupDefaultSplits],
   )
   const itemizedTotal = receiptItems.reduce((sum, item) => sum + Number(item.amount || 0), 0)
   const upcomingRecurring = useMemo(
@@ -245,6 +261,9 @@ function SplitClubApp() {
         }
       : ledger.members[0])
   const selectedRole = selectedGroupId ? membershipRoles[selectedGroupId]?.[activeUserId] ?? 'viewer' : 'member'
+  const selectedGroupDefaultsKey = selectedGroup
+    ? `${selectedGroup.id}:${selectedGroup.defaultCurrency}:${selectedGroup.defaultSplitMode}:${selectedGroup.defaultSplits.map((split) => `${split.memberId}-${split.value}`).join('|')}`
+    : 'non-group'
 
   const lifecycleEvent = (expenseId, action, summary) => ({
     id: `history-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -254,6 +273,73 @@ function SplitClubApp() {
     summary,
     createdAt: new Date().toISOString(),
   })
+
+  const applyGroupDefaultsToExpense = (group = selectedGroup) => {
+    if (!group) {
+      setSplitMode('equal')
+      setSplitValues({})
+      return
+    }
+    const defaults = applyGroupDefaultSplits(group)
+    setSplitMode(defaults.splitMode)
+    setSplitValues(splitsToValues(defaults.splits, group.memberIds, defaults.splitMode, Number(amount)))
+    setCurrency(group.defaultCurrency)
+    setSyncState(`Using ${group.name} defaults`)
+  }
+
+  useEffect(() => {
+    applyGroupDefaultsToExpense(selectedGroup)
+  }, [selectedGroupDefaultsKey])
+
+  const setExpenseSplitMode = (mode) => {
+    setSplitMode(mode)
+    setSplitValues((current) => ensureSplitValues(mode, membersForGroup.map((member) => member.id), Number(amount), current))
+  }
+
+  const setExpenseSplitValue = (memberId, value) => {
+    setSplitValues((current) => ({ ...current, [memberId]: value }))
+  }
+
+  const openGroupSettings = () => {
+    if (!selectedGroup) return
+    setGroupDefaultMode(selectedGroup.defaultSplitMode)
+    setGroupDefaultValues(splitsToValues(selectedGroup.defaultSplits, selectedGroup.memberIds, selectedGroup.defaultSplitMode, Number(amount)))
+    setGroupSettingsOpen(true)
+  }
+
+  const closeGroupSettings = () => {
+    setGroupSettingsOpen(false)
+  }
+
+  const setGroupDefaultModeValue = (mode) => {
+    setGroupDefaultMode(mode)
+    setGroupDefaultValues((current) => ensureSplitValues(mode, membersForGroup.map((member) => member.id), Number(amount), current))
+  }
+
+  const setGroupDefaultValue = (memberId, value) => {
+    setGroupDefaultValues((current) => ({ ...current, [memberId]: value }))
+  }
+
+  const saveGroupDefaults = () => {
+    if (!selectedGroup) return
+    if (!groupDefaultValidation.valid) {
+      Alert.alert('Check defaults', groupDefaultValidation.message)
+      return
+    }
+    const defaultSplits = groupDefaultMode === 'equal' ? [] : groupDefaultSplits
+    setLedger((current) => ({
+      ...current,
+      groups: current.groups.map((group) =>
+        group.id === selectedGroup.id
+          ? { ...group, defaultSplitMode: groupDefaultMode, defaultSplits }
+          : group,
+      ),
+    }))
+    setSplitMode(groupDefaultMode)
+    setSplitValues(splitsToValues(defaultSplits, selectedGroup.memberIds, groupDefaultMode, Number(amount)))
+    setSyncState('Group defaults saved')
+    setGroupSettingsOpen(false)
+  }
 
   const openExpense = (expense) => {
     setSelectedExpenseId(expense.id)
@@ -812,6 +898,15 @@ function SplitClubApp() {
     setActiveUserId,
     selectedRole,
     selectedGroup,
+    groupSettingsOpen,
+    openGroupSettings,
+    closeGroupSettings,
+    groupDefaultMode,
+    setGroupDefaultModeValue,
+    groupDefaultValues,
+    setGroupDefaultValue,
+    groupDefaultValidation,
+    saveGroupDefaults,
     activeGroups,
     deletedGroups,
     selectedGroupId,
@@ -838,7 +933,10 @@ function SplitClubApp() {
     query,
     setQuery,
     splitMode,
-    setSplitMode,
+    setSplitMode: setExpenseSplitMode,
+    splitValues,
+    setExpenseSplitValue,
+    applyGroupDefaultsToExpense,
     splitPreview,
     amount,
     setAmount,
@@ -936,11 +1034,11 @@ function SplitClubApp() {
       <YStack flex={1} bg="#fafafa">
         <Header title={currentTitle} selectedGroup={selectedGroup} syncState={syncState} />
         <YStack flex={1} maxWidth={820} width="100%" alignSelf="center">
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 104 }}>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 140 }}>
             <YStack gap="$3" px="$4" pt="$3">
               {selectedExpense ? <ExpenseDetailScreen state={appState} /> : null}
               {!selectedExpense && activeTab === 'activity' && <ActivityScreen state={appState} />}
-              {!selectedExpense && activeTab === 'groups' && <GroupsScreen state={appState} />}
+              {!selectedExpense && activeTab === 'groups' && (groupSettingsOpen ? <GroupSettingsScreen state={appState} /> : <GroupsScreen state={appState} />)}
               {!selectedExpense && activeTab === 'add' && <AddExpenseScreen state={appState} />}
               {!selectedExpense && activeTab === 'balances' && <BalancesScreen state={appState} />}
               {!selectedExpense && activeTab === 'settings' && <MoreScreen state={appState} />}
@@ -949,6 +1047,7 @@ function SplitClubApp() {
         </YStack>
         <BottomNav activeTab={activeTab} onChange={(tab) => {
           setSelectedExpenseId(null)
+          setGroupSettingsOpen(false)
           setActiveTab(tab)
         }} />
       </YStack>
@@ -983,7 +1082,7 @@ function Header({ title, selectedGroup, syncState }) {
   )
 }
 
-function buildSplitPreview(amount, splitMode, participants) {
+function buildSplitPreview(amount, splitMode, participants, splitValues = {}) {
   if (!participants.length || Number.isNaN(amount) || amount <= 0) {
     return { valid: false, message: 'Enter a valid amount', splits: [], preview: [] }
   }
@@ -997,10 +1096,7 @@ function buildSplitPreview(amount, splitMode, participants) {
   }
 
   if (splitMode === 'percent') {
-    const splits = participants.map((memberId, index) => ({
-      memberId,
-      value: index === 0 ? 40 : 60 / Math.max(participants.length - 1, 1),
-    }))
+    const splits = valuesToSplits(splitValuesWithFallback(splitValues, splitMode, participants, amount), participants)
     const total = roundMoney(splits.reduce((sum, split) => sum + split.value, 0))
     const preview = distributePreview(
       splits.map((split) => ({ memberId: split.memberId, amount: amount * (split.value / 100) })),
@@ -1010,7 +1106,7 @@ function buildSplitPreview(amount, splitMode, participants) {
   }
 
   if (splitMode === 'shares') {
-    const splits = participants.map((memberId, index) => ({ memberId, value: index === 0 ? 2 : 1 }))
+    const splits = valuesToSplits(splitValuesWithFallback(splitValues, splitMode, participants, amount), participants)
     const totalShares = splits.reduce((sum, split) => sum + split.value, 0)
     const preview = distributePreview(
       splits.map((split) => ({ memberId: split.memberId, amount: amount * (split.value / totalShares) })),
@@ -1019,19 +1115,14 @@ function buildSplitPreview(amount, splitMode, participants) {
     return { valid: totalShares > 0, message: `${totalShares} shares`, splits, preview }
   }
 
-  const equalAmount = amount / participants.length
-  const splits = participants.map((memberId) => ({ memberId, value: roundMoney(equalAmount) }))
-  const balanced = distributePreview(
-    splits.map((split) => ({ memberId: split.memberId, amount: split.value })),
-    amount,
-  )
-  const adjustedSplits = balanced.map((share) => ({ memberId: share.memberId, value: share.amount }))
-  const total = roundMoney(adjustedSplits.reduce((sum, split) => sum + split.value, 0))
+  const splits = valuesToSplits(splitValuesWithFallback(splitValues, splitMode, participants, amount), participants)
+  const preview = splits.map((split) => ({ memberId: split.memberId, amount: roundMoney(split.value) }))
+  const total = roundMoney(splits.reduce((sum, split) => sum + split.value, 0))
   return {
     valid: total === roundMoney(amount),
     message: total === roundMoney(amount) ? 'Exact total matches' : `${total.toFixed(2)} allocated`,
-    splits: adjustedSplits,
-    preview: balanced,
+    splits,
+    preview,
   }
 }
 
@@ -1042,6 +1133,47 @@ function distributePreview(shares, expected) {
     rounded[0] = { ...rounded[0], amount: roundMoney(rounded[0].amount + difference) }
   }
   return rounded
+}
+
+function generatedSplitValues(splitMode, participants, amount) {
+  if (splitMode === 'percent') {
+    return Object.fromEntries(participants.map((memberId, index) => [memberId, String(roundMoney(index === 0 ? 40 : 60 / Math.max(participants.length - 1, 1)))]))
+  }
+  if (splitMode === 'shares') {
+    return Object.fromEntries(participants.map((memberId, index) => [memberId, String(index === 0 ? 2 : 1)]))
+  }
+  const preview = distributePreview(participants.map((memberId) => ({ memberId, amount: amount / participants.length })), amount)
+  return Object.fromEntries(preview.map((share) => [share.memberId, String(share.amount)]))
+}
+
+function splitValuesWithFallback(values, splitMode, participants, amount) {
+  const fallback = generatedSplitValues(splitMode, participants, amount)
+  return Object.fromEntries(participants.map((memberId) => [memberId, values[memberId] ?? fallback[memberId] ?? '0']))
+}
+
+function ensureSplitValues(splitMode, participants, amount, values = {}) {
+  if (splitMode === 'equal') return {}
+  return splitValuesWithFallback(values, splitMode, participants, amount)
+}
+
+function splitsToValues(splits, participants, splitMode, amount) {
+  if (splitMode === 'equal') return {}
+  return ensureSplitValues(
+    splitMode,
+    participants,
+    amount,
+    Object.fromEntries(splits.map((split) => [split.memberId, String(split.value)])),
+  )
+}
+
+function valuesToSplits(values, participants) {
+  return participants.map((memberId) => ({ memberId, value: roundMoney(Number(values[memberId] || 0)) }))
+}
+
+function defaultValueUnit(splitMode) {
+  if (splitMode === 'percent') return 'Percent'
+  if (splitMode === 'shares') return 'Shares'
+  return 'Amount'
 }
 
 function ActivityScreen({ state }) {
@@ -1216,10 +1348,14 @@ function GroupsScreen({ state }) {
         <Panel title="Group lifecycle">
           <YStack gap="$3">
             <FeatureList rows={[
+              ['Default split', `${state.selectedGroup.defaultSplitMode} for new expenses in this group.`],
               ['Delete group', 'Deletes this group for everyone and hides it from normal group lists.'],
               ['Restore path', 'Deleted groups can be restored from More, similar to recent activity recovery.'],
             ]} />
-            <SecondaryButton icon={<Trash2 size={16} color="#09090b" />} label="Delete group" onPress={state.deleteSelectedGroup} />
+            <XStack gap="$2" fw="wrap">
+              <SecondaryButton icon={<Settings size={16} color="#09090b" />} label="Settings" onPress={state.openGroupSettings} />
+              <SecondaryButton icon={<Trash2 size={16} color="#09090b" />} label="Delete group" onPress={state.deleteSelectedGroup} />
+            </XStack>
           </YStack>
         </Panel>
       ) : null}
@@ -1325,6 +1461,63 @@ function GroupsScreen({ state }) {
   )
 }
 
+function GroupSettingsScreen({ state }) {
+  const group = state.selectedGroup
+  if (!group) return null
+  const showValues = state.groupDefaultMode !== 'equal'
+  return (
+    <>
+      <Panel title={group.name} actionLabel="Groups" onAction={state.closeGroupSettings}>
+        <FeatureList rows={[
+          ['Default split', 'Saved defaults are applied when this group starts a new expense.'],
+          ['Members', `${state.membersForGroup.length} people use this pattern.`],
+          ['Currency', `${group.defaultCurrency} remains the group default currency.`],
+        ]} />
+      </Panel>
+
+      <Panel title="Default split method" actionLabel="Save" onAction={state.saveGroupDefaults}>
+        <YStack gap="$3">
+          <XStack gap="$1.5" fw="wrap">
+            {splitModes.map((mode) => (
+              <Chip key={mode} label={mode} active={state.groupDefaultMode === mode} onPress={() => state.setGroupDefaultModeValue(mode)} />
+            ))}
+          </XStack>
+          {showValues ? (
+            <YStack gap="$2">
+              {state.membersForGroup.map((member) => (
+                <XStack key={member.id} ai="center" gap="$2" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
+                  <YStack flex={1}>
+                    <Text color="#09090b" fontSize={14} fontWeight="900">
+                      {member.name}
+                    </Text>
+                    <Muted>{defaultValueUnit(state.groupDefaultMode)}</Muted>
+                  </YStack>
+                  <Input
+                    value={state.groupDefaultValues[member.id] ?? ''}
+                    onChangeText={(value) => state.setGroupDefaultValue(member.id, value)}
+                    keyboardType="decimal-pad"
+                    placeholder="0"
+                    width={112}
+                    {...inputProps}
+                  />
+                </XStack>
+              ))}
+            </YStack>
+          ) : (
+            <Muted>Equal defaults divide the bill across every current group member.</Muted>
+          )}
+          <YStack bg={state.groupDefaultValidation.valid ? '#fafafa' : '#fff1f2'} borderWidth={1} borderColor={state.groupDefaultValidation.valid ? '#e4e4e7' : '#fecdd3'} br="$3" p="$3">
+            <SizableText color={state.groupDefaultValidation.valid ? '#09090b' : '#be123c'} size="$2" fontWeight="900">
+              {state.groupDefaultValidation.message}
+            </SizableText>
+          </YStack>
+          <PrimaryButton icon={<Check size={17} color="#ffffff" />} label="Save defaults" onPress={state.saveGroupDefaults} />
+        </YStack>
+      </Panel>
+    </>
+  )
+}
+
 function AddExpenseScreen({ state }) {
   return (
     <>
@@ -1382,6 +1575,32 @@ function AddExpenseScreen({ state }) {
               ))}
             </XStack>
           </Field>
+          {state.selectedGroup ? (
+            <SecondaryButton icon={<RefreshCcw size={16} color="#09090b" />} label="Use group defaults" onPress={() => state.applyGroupDefaultsToExpense()} />
+          ) : null}
+          {state.splitMode !== 'equal' ? (
+            <YStack gap="$2">
+              <Label>Split values</Label>
+              {state.membersForGroup.map((member) => (
+                <XStack key={member.id} ai="center" gap="$2" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
+                  <YStack flex={1}>
+                    <Text color="#09090b" fontSize={14} fontWeight="900">
+                      {member.name}
+                    </Text>
+                    <Muted>{defaultValueUnit(state.splitMode)}</Muted>
+                  </YStack>
+                  <Input
+                    value={state.splitValues[member.id] ?? ''}
+                    onChangeText={(value) => state.setExpenseSplitValue(member.id, value)}
+                    keyboardType="decimal-pad"
+                    placeholder="0"
+                    width={112}
+                    {...inputProps}
+                  />
+                </XStack>
+              ))}
+            </YStack>
+          ) : null}
           <YStack bg="#f4f4f5" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3" gap="$2">
             <Label>Participants</Label>
             <XStack fw="wrap" gap="$2">

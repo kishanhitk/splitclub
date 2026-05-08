@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { seedLedger } from '../data/seed'
 import {
+  applyGroupDefaultSplits,
   calculateBalances,
   calculateOwedShares,
   canMemberSeeBalance,
@@ -15,6 +16,7 @@ import {
   spendingTrend,
   summarizeCurrencyExposure,
   summarizeVisibility,
+  validateGroupDefaultSplits,
 } from './split'
 
 describe('split engine', () => {
@@ -122,5 +124,29 @@ describe('split engine', () => {
       recurrence: 'monthly',
     })
     expect(listUpcomingRecurringExpenses(seedLedger, ['e3'])).toHaveLength(0)
+  })
+
+  test('validates and applies group default split settings', () => {
+    expect(validateGroupDefaultSplits('percent', ['kishan', 'anya'], [
+      { memberId: 'kishan', value: 60 },
+      { memberId: 'anya', value: 40 },
+    ])).toMatchObject({ valid: true, message: '100% allocated' })
+
+    expect(validateGroupDefaultSplits('percent', ['kishan', 'anya'], [
+      { memberId: 'kishan', value: 50 },
+      { memberId: 'anya', value: 40 },
+    ])).toMatchObject({ valid: false, message: '90% allocated' })
+
+    expect(applyGroupDefaultSplits({
+      memberIds: ['kishan', 'anya'],
+      defaultSplitMode: 'shares',
+      defaultSplits: [{ memberId: 'kishan', value: 2 }],
+    })).toEqual({
+      splitMode: 'shares',
+      splits: [
+        { memberId: 'kishan', value: 2 },
+        { memberId: 'anya', value: 0 },
+      ],
+    })
   })
 })

@@ -103,6 +103,11 @@ export const groupSchema = z.object({
   defaultSplits: z.array(splitShareSchema).default([]),
 })
 
+export const groupDefaultsSchema = z.object({
+  defaultSplitMode: splitModeSchema,
+  defaultSplits: z.array(splitShareSchema).default([]),
+})
+
 export const friendSchema = z.object({
   id: z.string().min(1).optional(),
   name: z.string().min(1),
@@ -148,6 +153,7 @@ export const searchSchema = z.object({
 
 export type MemberInput = z.infer<typeof memberSchema>
 export type GroupInput = z.infer<typeof groupSchema>
+export type GroupDefaultsInput = z.infer<typeof groupDefaultsSchema>
 export type FriendInput = z.infer<typeof friendSchema>
 export type GroupInviteInput = z.infer<typeof groupInviteSchema>
 export type MembershipInput = z.infer<typeof membershipSchema>
