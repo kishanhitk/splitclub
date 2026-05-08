@@ -343,6 +343,7 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
       return structuredClone(expenses.map(decorateExpense))
     },
     async createExpense(input) {
+      const updatedAt = now()
       const expense: Expense = {
         id: input.id ?? makeId('expense'),
         groupId: input.groupId,
@@ -372,6 +373,7 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
         paymentStatus: input.paymentStatus,
         comments: [],
         history: [],
+        updatedAt,
       }
       ledger = { ...ledger, expenses: [expense, ...ledger.expenses] }
       audit('expense', expense.id, 'created', expense)
@@ -380,7 +382,7 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
     async updateExpense(expenseId, input, actorId) {
       const existing = findExpense(expenseId)
       if (!existing) throw new Error('Expense not found')
-      const updated = applyExpensePatch(existing, input)
+      const updated = { ...applyExpensePatch(existing, input), updatedAt: now() }
       ledger = {
         ...ledger,
         expenses: ledger.expenses.map((expense) => (expense.id === expenseId ? updated : expense)),
@@ -392,7 +394,7 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
       const existing = findExpense(expenseId)
       if (!existing) throw new Error('Expense not found')
       const deletedAt = now()
-      const deleted = { ...existing, deletedAt }
+      const deleted = { ...existing, deletedAt, updatedAt: deletedAt }
       ledger = {
         ...ledger,
         expenses: ledger.expenses.map((expense) => (expense.id === expenseId ? deleted : expense)),
@@ -403,7 +405,7 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
     async restoreExpense(expenseId, actorId) {
       const existing = findExpense(expenseId)
       if (!existing) throw new Error('Expense not found')
-      const restored = { ...existing, deletedAt: undefined }
+      const restored = { ...existing, deletedAt: undefined, updatedAt: now() }
       ledger = {
         ...ledger,
         expenses: ledger.expenses.map((expense) => (expense.id === expenseId ? restored : expense)),
@@ -515,6 +517,7 @@ type ExpenseRow = {
   payment_method?: Expense['paymentMethod']
   payment_reference?: string
   payment_status?: Expense['paymentStatus']
+  updated_at?: string
   deleted_at?: string
 }
 
@@ -645,6 +648,7 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
     paymentMethod: row.payment_method,
     paymentReference: row.payment_reference,
     paymentStatus: row.payment_status,
+    updatedAt: row.updated_at,
     comments: await listComments(row.id),
     history: await listExpenseHistory(row.id),
     deletedAt: row.deleted_at,
@@ -1066,7 +1070,9 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
           .run()
       }
       await audit('expense', expenseId, 'created', input)
-      return toExpense({ id: expenseId, group_id: input.groupId, description: input.description, amount: input.amount, currency: input.currency, paid_by: input.paidBy, split_mode: input.splitMode, category: input.category, kind: input.kind, date: input.date, notes: input.notes, attachment_name: input.attachmentName, recurrence: input.recurrence, reminder_days: input.reminderDays, payment_method: input.paymentMethod, payment_reference: input.paymentReference, payment_status: input.paymentStatus })
+      const row = await findExpenseRow(expenseId)
+      if (!row) throw new Error('Expense was not created')
+      return toExpense(row)
     },
     async updateExpense(expenseId, input, actorId) {
       const row = await findExpenseRow(expenseId)

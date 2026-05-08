@@ -66,6 +66,7 @@ export type Expense = {
   paymentStatus?: PaymentStatus
   comments?: ExpenseComment[]
   history?: ExpenseHistoryEvent[]
+  updatedAt?: string
   deletedAt?: string
 }
 
@@ -195,7 +196,7 @@ export type LedgerMergeSummary = {
 export const roundMoney = (amount: number) => Math.round((amount + Number.EPSILON) * 100) / 100
 
 function latestExpenseTimestamp(expense: Expense) {
-  return expense.history?.at(-1)?.createdAt ?? expense.deletedAt ?? expense.date
+  return expense.updatedAt ?? expense.history?.[0]?.createdAt ?? expense.deletedAt ?? expense.date
 }
 
 function mergeById<T extends LedgerMergeRecord>(

@@ -1,6 +1,6 @@
 /// <reference types="@cloudflare/workers-types" />
 
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { ZodError } from 'zod'
 import {
   accountUpdateSchema,
@@ -16,7 +16,7 @@ import {
   searchSchema,
   settlementSchema,
 } from '../src/contracts/api'
-import type { Ledger, Member } from '../src/domain/split'
+import type { Expense, Ledger, Member } from '../src/domain/split'
 import {
   calculateBalances,
   calculateDirectSettlements,
@@ -113,6 +113,31 @@ function scopedAuditEvents(ledger: Ledger, events: Awaited<ReturnType<LedgerStor
     if (event.entityType === 'friendship' || event.entityType === 'user') return memberIds.has(event.entityId) || event.actorId === userId
     return event.actorId === userId
   })
+}
+
+function expenseRevision(expense: Expense) {
+  return expense.updatedAt ?? expense.deletedAt ?? expense.history?.[0]?.createdAt ?? expense.date
+}
+
+function baseRevisionHeader(c: Context) {
+  return c.req.header('x-splitclub-base-revision') ?? c.req.header('if-unmodified-since')
+}
+
+function expenseConflictResponse(c: Context, expense: Expense) {
+  const baseRevision = baseRevisionHeader(c)
+  const currentRevision = expenseRevision(expense)
+  if (!baseRevision || !currentRevision || baseRevision === currentRevision) return null
+  return c.json({
+    error: 'expense_conflict',
+    message: 'Expense changed in the cloud before this mutation was pushed.',
+    conflict: {
+      entity: 'expense',
+      recordId: expense.id,
+      baseRevision,
+      currentRevision,
+      remoteRecord: expense,
+    },
+  }, 409)
 }
 
 export function createApp() {
@@ -396,6 +421,8 @@ export function createApp() {
     const store = getStore(c.env)
     const member = currentMember(c.get('authMember'))
     const existing = await requireExpenseAccess(store, member.id, c.req.param('id'))
+    const conflict = expenseConflictResponse(c, existing)
+    if (conflict) return conflict
     const payload = expenseUpdateSchema.parse(await c.req.json())
     if (payload.payments?.length && roundMoney(payload.payments.reduce((sum, payment) => sum + payment.value, 0)) !== roundMoney(payload.amount ?? existing.amount)) {
       return c.json({ error: 'invalid_payers', message: 'Payer shares must match the expense total.' }, 400)
@@ -425,7 +452,9 @@ export function createApp() {
   app.delete('/api/expenses/:id', async (c) => {
     const store = getStore(c.env)
     const member = currentMember(c.get('authMember'))
-    await requireExpenseAccess(store, member.id, c.req.param('id'))
+    const existing = await requireExpenseAccess(store, member.id, c.req.param('id'))
+    const conflict = expenseConflictResponse(c, existing)
+    if (conflict) return conflict
     const expense = await store.deleteExpense(c.req.param('id'), member.id)
     await c.env.SYNC_QUEUE?.send({ type: 'expense.deleted', expenseId: expense.id, createdAt: new Date().toISOString() })
     return c.json({ expense })
@@ -441,6 +470,8 @@ export function createApp() {
     } else if (details.expense.paidBy !== member.id && !details.expense.participants.includes(member.id) && !(details.expense.payments ?? []).some((payment) => payment.memberId === member.id)) {
       throw new AuthError('Expense is not visible to this user', 403)
     }
+    const conflict = expenseConflictResponse(c, details.expense)
+    if (conflict) return conflict
     const expense = await store.restoreExpense(c.req.param('id'), member.id)
     await c.env.SYNC_QUEUE?.send({ type: 'expense.restored', expenseId: expense.id, createdAt: new Date().toISOString() })
     return c.json({ expense })
