@@ -106,6 +106,7 @@ export const groupSchema = z.object({
 })
 
 export const groupDefaultsSchema = z.object({
+  simplifyDebts: z.boolean().optional(),
   defaultSplitMode: splitModeSchema,
   defaultSplits: z.array(splitShareSchema).default([]),
 })

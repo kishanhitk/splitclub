@@ -290,6 +290,7 @@ describe('SplitClub Worker API', () => {
       {
         method: 'PUT',
         body: JSON.stringify({
+          simplifyDebts: false,
           defaultSplitMode: 'percent',
           defaultSplits: [
             { memberId: 'kishan', value: 40 },
@@ -301,10 +302,16 @@ describe('SplitClub Worker API', () => {
       },
       env,
     )
-    const body = (await response.json()) as { group: { defaultSplitMode: string; defaultSplits: Array<{ memberId: string; value: number }> } }
+    const body = (await response.json()) as { group: { simplifyDebts: boolean; defaultSplitMode: string; defaultSplits: Array<{ memberId: string; value: number }> } }
     expect(response.status).toBe(200)
+    expect(body.group.simplifyDebts).toBe(false)
     expect(body.group.defaultSplitMode).toBe('percent')
     expect(body.group.defaultSplits).toContainEqual({ memberId: 'kishan', value: 40 })
+
+    const balancesResponse = await request('/api/groups/goa/balances?currency=INR', {}, env)
+    const balancesBody = (await balancesResponse.json()) as { settlements: Array<{ from: string; to: string; amount: number; currency: string }> }
+    expect(balancesBody.settlements).toHaveLength(5)
+    expect(balancesBody.settlements).toContainEqual({ from: 'dev', to: 'anya', amount: 840, currency: 'INR' })
     expect(queueMessages.some((message) => JSON.stringify(message).includes('group.defaults.updated'))).toBe(true)
   })
 

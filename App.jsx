@@ -38,6 +38,7 @@ import { seedLedger } from './src/data/seed'
 import {
   applyGroupDefaultSplits,
   calculateBalances,
+  calculateDirectSettlements,
   calculateFriendBalanceSummaries,
   convertExpensesToCurrency,
   exportCsv,
@@ -148,6 +149,7 @@ function SplitClubApp() {
   const [groupSettingsOpen, setGroupSettingsOpen] = useState(false)
   const [groupDefaultMode, setGroupDefaultMode] = useState('equal')
   const [groupDefaultValues, setGroupDefaultValues] = useState({})
+  const [groupSimplifyDebts, setGroupSimplifyDebts] = useState(true)
   const [membershipRoles, setMembershipRoles] = useState({
     goa: { kishan: 'owner', anya: 'member', dev: 'member', mia: 'viewer' },
     flat: { kishan: 'owner', anya: 'admin', dev: 'member' },
@@ -207,7 +209,12 @@ function SplitClubApp() {
     () => calculateFriendBalanceSummaries(ledger, activeUserId, currency),
     [ledger, activeUserId, currency],
   )
-  const settlements = useMemo(() => simplifyDebts(balances, currency), [balances, currency])
+  const settlements = useMemo(
+    () => selectedGroup?.simplifyDebts ?? false
+      ? simplifyDebts(balances, currency)
+      : calculateDirectSettlements(ledger, selectedGroupId, currency),
+    [balances, currency, ledger, selectedGroup, selectedGroupId],
+  )
   const categoryTotals = useMemo(
     () => spendingByCategory(ledger, selectedGroupId, currency).slice(0, 5),
     [ledger, selectedGroupId, currency],
@@ -332,6 +339,7 @@ function SplitClubApp() {
     if (!selectedGroup) return
     setGroupDefaultMode(selectedGroup.defaultSplitMode)
     setGroupDefaultValues(splitsToValues(selectedGroup.defaultSplits, selectedGroup.memberIds, selectedGroup.defaultSplitMode, Number(amount)))
+    setGroupSimplifyDebts(selectedGroup.simplifyDebts)
     setGroupSettingsOpen(true)
   }
 
@@ -359,7 +367,7 @@ function SplitClubApp() {
       ...current,
       groups: current.groups.map((group) =>
         group.id === selectedGroup.id
-          ? { ...group, defaultSplitMode: groupDefaultMode, defaultSplits }
+          ? { ...group, simplifyDebts: groupSimplifyDebts, defaultSplitMode: groupDefaultMode, defaultSplits }
           : group,
       ),
     }))
@@ -950,6 +958,8 @@ function SplitClubApp() {
     setGroupDefaultModeValue,
     groupDefaultValues,
     setGroupDefaultValue,
+    groupSimplifyDebts,
+    setGroupSimplifyDebts,
     groupDefaultValidation,
     saveGroupDefaults,
     activeGroups,
@@ -1421,6 +1431,7 @@ function GroupsScreen({ state }) {
           <YStack gap="$3">
             <FeatureList rows={[
               ['Default split', `${state.selectedGroup.defaultSplitMode} for new expenses in this group.`],
+              ['Settle-up mode', state.selectedGroup.simplifyDebts ? 'Simplified debts are on.' : 'Direct pairwise debts are on.'],
               ['Delete group', 'Deletes this group for everyone and hides it from normal group lists.'],
               ['Restore path', 'Deleted groups can be restored from More, similar to recent activity recovery.'],
             ]} />
@@ -1542,9 +1553,24 @@ function GroupSettingsScreen({ state }) {
       <Panel title={group.name} actionLabel="Groups" onAction={state.closeGroupSettings}>
         <FeatureList rows={[
           ['Default split', 'Saved defaults are applied when this group starts a new expense.'],
+          ['Settle-up mode', group.simplifyDebts ? 'Simplified debts reduce payment count.' : 'Direct debts preserve pairwise IOUs.'],
           ['Members', `${state.membersForGroup.length} people use this pattern.`],
           ['Currency', `${group.defaultCurrency} remains the group default currency.`],
         ]} />
+      </Panel>
+
+      <Panel title="Settle-up mode">
+        <YStack gap="$3">
+          <XStack gap="$1.5" fw="wrap">
+            <Chip label="Simplified" active={state.groupSimplifyDebts} onPress={() => state.setGroupSimplifyDebts(true)} />
+            <Chip label="Direct" active={!state.groupSimplifyDebts} onPress={() => state.setGroupSimplifyDebts(false)} />
+          </XStack>
+          <Muted>
+            {state.groupSimplifyDebts
+              ? "SplitClub will reduce the number of payments while preserving everyone's net balance."
+              : 'SplitClub will keep settle-up suggestions tied to the original pairwise debts.'}
+          </Muted>
+        </YStack>
       </Panel>
 
       <Panel title="Default split method" actionLabel="Save" onAction={state.saveGroupDefaults}>

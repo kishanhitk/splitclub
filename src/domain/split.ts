@@ -353,6 +353,30 @@ export function calculateBalances(ledger: Ledger, groupId?: string | null, curre
     .sort((a, b) => b.amount - a.amount)
 }
 
+function addDirectDebt(debts: Map<string, number>, from: string, to: string, amount: number) {
+  const rounded = roundMoney(amount)
+  if (from === to || Math.abs(rounded) < 0.01) return
+
+  const key = `${from}->${to}`
+  const reverseKey = `${to}->${from}`
+  const reverse = debts.get(reverseKey) ?? 0
+  if (reverse > 0) {
+    const offset = Math.min(reverse, rounded)
+    const remainingReverse = roundMoney(reverse - offset)
+    if (remainingReverse >= 0.01) {
+      debts.set(reverseKey, remainingReverse)
+    } else {
+      debts.delete(reverseKey)
+    }
+
+    const remaining = roundMoney(rounded - offset)
+    if (remaining >= 0.01) debts.set(key, roundMoney((debts.get(key) ?? 0) + remaining))
+    return
+  }
+
+  debts.set(key, roundMoney((debts.get(key) ?? 0) + rounded))
+}
+
 const paymentMapForExpense = (expense: Expense, currency: string, rates: Record<string, number>) => {
   const payments = new Map<string, number>()
   const paymentShares = expense.payments?.length
@@ -537,6 +561,41 @@ export function simplifyDebts(balances: Balance[], currency: string): Settlement
   }
 
   return settlements
+}
+
+export function calculateDirectSettlements(ledger: Ledger, groupId?: string | null, currency = ledger.defaultCurrency): Settlement[] {
+  const debts = new Map<string, number>()
+  const expenses = ledger.expenses.filter((expense) => !expense.deletedAt && (groupId === undefined || expense.groupId === groupId))
+
+  for (const expense of expenses) {
+    const amount = convertAmount(expense.amount, expense.currency, currency, ledger.exchangeRates)
+
+    if (expense.kind === 'settlement') {
+      const from = expense.participants[0]
+      addDirectDebt(debts, expense.paidBy, from, amount)
+      continue
+    }
+
+    const normalized = { ...expense, amount, currency }
+    const owedByMember = owedMapForExpense(normalized)
+    const paidByMember = paymentMapForExpense(expense, currency, ledger.exchangeRates)
+    const totalPaid = Array.from(paidByMember.values()).reduce((sum, paid) => sum + paid, 0)
+    if (totalPaid <= 0) continue
+
+    for (const [debtorId, owed] of owedByMember.entries()) {
+      for (const [creditorId, paid] of paidByMember.entries()) {
+        addDirectDebt(debts, debtorId, creditorId, owed * (paid / totalPaid))
+      }
+    }
+  }
+
+  return Array.from(debts.entries())
+    .map(([key, amount]) => {
+      const [from, to] = key.split('->')
+      return { from, to, amount: roundMoney(amount), currency }
+    })
+    .filter((settlement) => settlement.amount >= 0.01)
+    .sort((a, b) => b.amount - a.amount || a.from.localeCompare(b.from) || a.to.localeCompare(b.to))
 }
 
 export function spendingByCategory(ledger: Ledger, groupId?: string | null, currency = ledger.defaultCurrency) {

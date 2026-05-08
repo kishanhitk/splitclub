@@ -3,6 +3,7 @@ import { seedLedger } from '../data/seed'
 import {
   applyGroupDefaultSplits,
   calculateBalances,
+  calculateDirectSettlements,
   calculateFriendBalanceSummaries,
   calculateOwedShares,
   canMemberSeeBalance,
@@ -71,6 +72,14 @@ describe('split engine', () => {
     const settlements = simplifyDebts(calculateBalances(seedLedger, 'goa', 'INR'), 'INR')
     expect(settlements).toHaveLength(3)
     expect(settlements[0]).toMatchObject({ to: 'kishan', currency: 'INR' })
+  })
+
+  test('keeps direct pairwise settlements when debt simplification is off', () => {
+    const settlements = calculateDirectSettlements(seedLedger, 'goa', 'INR')
+    expect(settlements).toHaveLength(5)
+    expect(settlements).toContainEqual({ from: 'mia', to: 'kishan', amount: 6000, currency: 'INR' })
+    expect(settlements).toContainEqual({ from: 'anya', to: 'kishan', amount: 4300, currency: 'INR' })
+    expect(settlements).toContainEqual({ from: 'dev', to: 'anya', amount: 840, currency: 'INR' })
   })
 
   test('summarizes friend balances across groups and private expenses', () => {

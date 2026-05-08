@@ -220,11 +220,13 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
       if (!group) throw new Error('Group not found')
       const updated = {
         ...group,
+        simplifyDebts: input.simplifyDebts ?? group.simplifyDebts,
         defaultSplitMode: input.defaultSplitMode,
         defaultSplits: input.defaultSplitMode === 'equal' ? [] : input.defaultSplits,
       }
       ledger = { ...ledger, groups: ledger.groups.map((candidate) => candidate.id === groupId ? updated : candidate) }
       audit('group', groupId, 'defaults.updated', {
+        simplifyDebts: updated.simplifyDebts,
         defaultSplitMode: updated.defaultSplitMode,
         defaultSplits: updated.defaultSplits,
       }, actorId)
@@ -789,7 +791,8 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
         .bind(groupId)
         .first<GroupRow>()
       if (!row) throw new Error('Group not found')
-      await db.prepare('UPDATE groups SET default_split_mode = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(input.defaultSplitMode, groupId).run()
+      const simplifyDebts = input.simplifyDebts ?? (row.simplify_debts === 1)
+      await db.prepare('UPDATE groups SET simplify_debts = ?, default_split_mode = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(simplifyDebts ? 1 : 0, input.defaultSplitMode, groupId).run()
       await db.prepare('DELETE FROM group_default_splits WHERE group_id = ?').bind(groupId).run()
       if (input.defaultSplitMode !== 'equal') {
         await Promise.all(input.defaultSplits.map((split) => (
@@ -797,7 +800,7 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
         )))
       }
       await audit('group', groupId, 'defaults.updated', input, actorId)
-      return toGroup({ ...row, default_split_mode: input.defaultSplitMode })
+      return toGroup({ ...row, simplify_debts: simplifyDebts ? 1 : 0, default_split_mode: input.defaultSplitMode })
     },
     async listDeletedGroups(memberId) {
       const groups = await db
