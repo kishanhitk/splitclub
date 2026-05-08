@@ -75,6 +75,16 @@ export type Settlement = {
   currency: string
 }
 
+export type UpcomingRecurringExpense = {
+  sourceExpenseId: string
+  description: string
+  dueDate: string
+  reminderDate?: string
+  amount: number
+  currency: string
+  recurrence: Exclude<Recurrence, 'none'>
+}
+
 export const roundMoney = (amount: number) => Math.round((amount + Number.EPSILON) * 100) / 100
 
 const distributeRemainder = (shares: Balance[], expected: number) => {
@@ -226,4 +236,46 @@ export function exportCsv(ledger: Ledger) {
       .join(','),
   )
   return [header.join(','), ...rows].join('\n')
+}
+
+export function getNextDueDate(date: string, recurrence: Recurrence): string | undefined {
+  if (recurrence === 'none') return undefined
+  const due = new Date(`${date}T00:00:00.000Z`)
+  if (Number.isNaN(due.getTime())) return undefined
+  if (recurrence === 'weekly') due.setUTCDate(due.getUTCDate() + 7)
+  if (recurrence === 'monthly') due.setUTCMonth(due.getUTCMonth() + 1)
+  if (recurrence === 'yearly') due.setUTCFullYear(due.getUTCFullYear() + 1)
+  return due.toISOString().slice(0, 10)
+}
+
+export function getReminderDate(dueDate: string, reminderDays = 0): string | undefined {
+  const reminder = new Date(`${dueDate}T00:00:00.000Z`)
+  if (Number.isNaN(reminder.getTime())) return undefined
+  reminder.setUTCDate(reminder.getUTCDate() - reminderDays)
+  return reminder.toISOString().slice(0, 10)
+}
+
+export function listUpcomingRecurringExpenses(ledger: Ledger, canceledIds: string[] = []): UpcomingRecurringExpense[] {
+  const existingGenerated = new Set(
+    ledger.expenses
+      .map((expense) => expense.notes?.match(/generated-from:([^\s]+)/)?.[1])
+      .filter((id): id is string => Boolean(id)),
+  )
+
+  return ledger.expenses
+    .filter((expense) => expense.recurrence && expense.recurrence !== 'none')
+    .filter((expense) => !canceledIds.includes(expense.id))
+    .flatMap((expense): UpcomingRecurringExpense[] => {
+      const dueDate = getNextDueDate(expense.date, expense.recurrence ?? 'none')
+      if (!dueDate || existingGenerated.has(expense.id)) return []
+      return [{
+        sourceExpenseId: expense.id,
+        description: expense.description,
+        dueDate,
+        reminderDate: getReminderDate(dueDate, expense.reminderDays),
+        amount: expense.amount,
+        currency: expense.currency,
+        recurrence: expense.recurrence as Exclude<Recurrence, 'none'>,
+      }]
+    })
 }
