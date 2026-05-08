@@ -23,6 +23,7 @@ import { seedLedger } from './src/data/seed'
 import {
   calculateBalances,
   exportCsv,
+  listUpcomingRecurringExpenses,
   roundMoney,
   searchExpenses,
   simplifyDebts,
@@ -36,6 +37,7 @@ const currencies = ['INR', 'USD', 'EUR', 'GBP', 'SGD']
 const expenseKinds = ['expense', 'refund', 'reimbursement', 'debt']
 const categories = ['Transport', 'Food', 'Lodging', 'Rent', 'Groceries', 'Utilities', 'Tickets']
 const groupRoles = ['owner', 'admin', 'member', 'viewer']
+const recurrenceOptions = ['none', 'weekly', 'monthly', 'yearly']
 
 const navItems = [
   { id: 'activity', label: 'Activity', icon: ReceiptText },
@@ -66,6 +68,8 @@ function SplitClubApp() {
   const [category, setCategory] = useState('Transport')
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
   const [notes, setNotes] = useState('')
+  const [recurrence, setRecurrence] = useState('none')
+  const [reminderDays, setReminderDays] = useState('3')
   const [paidBy, setPaidBy] = useState('kishan')
   const [attachmentName, setAttachmentName] = useState('receipt.jpg')
   const [itemLabel, setItemLabel] = useState('Ticket')
@@ -85,6 +89,7 @@ function SplitClubApp() {
     flat: { kishan: 'owner', anya: 'admin', dev: 'member' },
   })
   const [privateBalances, setPrivateBalances] = useState(false)
+  const [canceledRecurringIds, setCanceledRecurringIds] = useState([])
   const [syncState, setSyncState] = useState('Offline ready')
 
   useEffect(() => {
@@ -117,6 +122,10 @@ function SplitClubApp() {
     [amount, splitMode, membersForGroup],
   )
   const itemizedTotal = receiptItems.reduce((sum, item) => sum + Number(item.amount || 0), 0)
+  const upcomingRecurring = useMemo(
+    () => listUpcomingRecurringExpenses(ledger, canceledRecurringIds),
+    [ledger, canceledRecurringIds],
+  )
 
   const memberName = (memberId) => ledger.members.find((member) => member.id === memberId)?.name ?? 'Someone'
   const activeUser = ledger.members.find((member) => member.id === activeUserId) ?? ledger.members[0]
@@ -156,7 +165,8 @@ function SplitClubApp() {
         amount: Number(item.amount),
         assignedTo: item.assignedTo.length > 0 ? item.assignedTo : participants,
       })),
-      recurrence: 'none',
+      recurrence,
+      reminderDays: recurrence === 'none' ? undefined : Number(reminderDays || 0),
     }
 
     setLedger((current) => ({ ...current, expenses: [expense, ...current.expenses] }))
@@ -245,6 +255,11 @@ function SplitClubApp() {
     setSyncState('Member removed')
   }
 
+  const cancelRecurring = (sourceExpenseId) => {
+    setCanceledRecurringIds((ids) => [...new Set([...ids, sourceExpenseId])])
+    setSyncState('Recurring bill canceled')
+  }
+
   const addSettlement = (from, to, settlementAmount) => {
     const settlement = {
       id: `settlement-${Date.now()}`,
@@ -310,6 +325,10 @@ function SplitClubApp() {
     setDate,
     notes,
     setNotes,
+    recurrence,
+    setRecurrence,
+    reminderDays,
+    setReminderDays,
     paidBy,
     setPaidBy,
     attachmentName,
@@ -338,6 +357,8 @@ function SplitClubApp() {
     removeMember,
     privateBalances,
     setPrivateBalances,
+    upcomingRecurring,
+    cancelRecurring,
     syncState,
     membersForGroup,
     visibleExpenses,
@@ -688,6 +709,18 @@ function AddExpenseScreen({ state }) {
           <Field label="Notes">
             <Input value={state.notes} onChangeText={state.setNotes} placeholder="Internal note, memo, or reminder context" {...inputProps} />
           </Field>
+          <Field label="Recurring bill">
+            <XStack gap="$1.5" fw="wrap">
+              {recurrenceOptions.map((option) => (
+                <Chip key={option} label={option} active={state.recurrence === option} onPress={() => state.setRecurrence(option)} />
+              ))}
+            </XStack>
+          </Field>
+          {state.recurrence !== 'none' ? (
+            <Field label="Reminder days before due date">
+              <Input value={state.reminderDays} onChangeText={state.setReminderDays} keyboardType="number-pad" placeholder="3" {...inputProps} />
+            </Field>
+          ) : null}
           <PrimaryButton icon={<Plus size={17} color="#ffffff" />} label="Save expense" onPress={state.addExpense} />
         </YStack>
       </Panel>
@@ -854,6 +887,33 @@ function SettingsScreen({ state }) {
           <SecondaryButton icon={<Download size={16} color="#09090b" />} label="Export CSV" onPress={state.shareExport} />
           <SecondaryButton icon={<RefreshCcw size={16} color="#09090b" />} label="Reset demo" onPress={state.restoreDemo} />
         </XStack>
+      </Panel>
+
+      <Panel title="Recurring bills">
+        <YStack gap="$2">
+          {state.upcomingRecurring.map((expense) => (
+            <XStack key={expense.sourceExpenseId} ai="center" gap="$2" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
+              <YStack flex={1}>
+                <Text color="#09090b" fontSize={14} fontWeight="900">
+                  {expense.description}
+                </Text>
+                <Muted>
+                  {expense.recurrence} · due {expense.dueDate}
+                  {expense.reminderDate ? ` · remind ${expense.reminderDate}` : ''}
+                </Muted>
+              </YStack>
+              <SizableText color="#09090b" size="$3" fontWeight="900">
+                {expense.currency} {expense.amount.toFixed(0)}
+              </SizableText>
+              <Button unstyled onPress={() => state.cancelRecurring(expense.sourceExpenseId)}>
+                <SizableText color="#71717a" size="$2" fontWeight="900">
+                  Cancel
+                </SizableText>
+              </Button>
+            </XStack>
+          ))}
+          {state.upcomingRecurring.length === 0 ? <Muted>No active recurring bills.</Muted> : null}
+        </YStack>
       </Panel>
     </>
   )

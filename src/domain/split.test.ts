@@ -1,6 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 import { seedLedger } from '../data/seed'
-import { calculateBalances, calculateOwedShares, searchExpenses, simplifyDebts } from './split'
+import {
+  calculateBalances,
+  calculateOwedShares,
+  getNextDueDate,
+  getReminderDate,
+  listUpcomingRecurringExpenses,
+  searchExpenses,
+  simplifyDebts,
+} from './split'
 
 describe('split engine', () => {
   test('splits percentages and preserves the total', () => {
@@ -28,5 +36,22 @@ describe('split engine', () => {
     expect(searchExpenses(seedLedger, 'recurring')).toHaveLength(1)
     expect(searchExpenses(seedLedger, 'usd')).toHaveLength(1)
     expect(searchExpenses(seedLedger, 'food')).toHaveLength(1)
+  })
+
+  test('generates upcoming recurring bills with reminder dates', () => {
+    expect(getNextDueDate('2026-05-03', 'weekly')).toBe('2026-05-10')
+    expect(getNextDueDate('2026-05-03', 'monthly')).toBe('2026-06-03')
+    expect(getNextDueDate('2026-05-03', 'yearly')).toBe('2027-05-03')
+    expect(getReminderDate('2026-06-03', 3)).toBe('2026-05-31')
+
+    const upcoming = listUpcomingRecurringExpenses(seedLedger)
+    expect(upcoming).toHaveLength(1)
+    expect(upcoming[0]).toMatchObject({
+      sourceExpenseId: 'e3',
+      dueDate: '2026-06-03',
+      reminderDate: '2026-05-31',
+      recurrence: 'monthly',
+    })
+    expect(listUpcomingRecurringExpenses(seedLedger, ['e3'])).toHaveLength(0)
   })
 })
