@@ -9,6 +9,8 @@
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
+    "db:migrate:local": "wrangler d1 migrations apply splitclub --local",
+    "db:migrate:remote": "wrangler d1 migrations apply splitclub --remote",
     "worker:dev": "wrangler dev worker/index.ts",
     "worker:deploy": "wrangler deploy"
   },

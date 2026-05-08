@@ -19,6 +19,7 @@ bun run web
 bun run android
 bun test
 bun run typecheck
+bun run db:migrate:local
 bun run worker:dev
 ```
 
