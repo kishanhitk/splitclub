@@ -50,6 +50,7 @@ SplitClub should cover the following Splitwise-style capabilities:
 - Group invite delivery includes shareable invite links, web clipboard handoff, native sharing, and a public Worker invite landing page.
 - Android/web invite links can now open the app shell, prefill the invite token, and accept through cloud or local invite state.
 - Invite acceptance is verified against the authenticated member email or phone before membership is created.
+- Account controls can link/update display name, email, phone, and preferred payment method locally and through the Worker account route so invite matching uses current identity data.
 - Expense lifecycle changes now push edits, comments, deletes, and restores to the Worker while remaining non-destructive offline.
 - Receipt uploads can be stored in R2, listed from the cloud receipt library, and reused in expense creation with extracted line items.
 - GitHub CI verifies web/domain checks and Android debug APK builds for pull requests, then publishes installable debug APK artifacts.

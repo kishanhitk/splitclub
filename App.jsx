@@ -163,6 +163,11 @@ function SplitClubApp() {
   const [cloudReceipts, setCloudReceipts] = useState([])
   const [receiptLibraryStatus, setReceiptLibraryStatus] = useState('Not loaded')
   const [activeUserId, setActiveUserId] = useState('kishan')
+  const [profileName, setProfileName] = useState('Kishan')
+  const [profileEmail, setProfileEmail] = useState('kishan@example.com')
+  const [profilePhone, setProfilePhone] = useState('')
+  const [profilePayment, setProfilePayment] = useState('upi')
+  const [identityStatus, setIdentityStatus] = useState('Invite identity ready')
   const [friendName, setFriendName] = useState('Rhea')
   const [friendEmail, setFriendEmail] = useState('rhea@example.com')
   const [inviteEmail, setInviteEmail] = useState('rhea@example.com')
@@ -313,10 +318,20 @@ function SplitClubApp() {
           id: authSession.user.id,
           name: authSession.user.name ?? authSession.user.email ?? 'Signed-in member',
           email: authSession.user.email,
+          phone: authSession.user.phone,
           avatar: authSession.user.avatar ?? 'SC',
           preferredPayment: 'cash',
         }
       : ledger.members[0])
+
+  useEffect(() => {
+    if (!activeUser) return
+    setProfileName(activeUser.name ?? '')
+    setProfileEmail(activeUser.email ?? authSession?.user.email ?? '')
+    setProfilePhone(activeUser.phone ?? authSession?.user.phone ?? '')
+    setProfilePayment(activeUser.preferredPayment ?? 'cash')
+  }, [activeUser?.id, activeUser?.name, activeUser?.email, activeUser?.phone, activeUser?.preferredPayment, authSession?.user.email, authSession?.user.phone])
+
   const selectedRole = selectedGroupId ? membershipRoles[selectedGroupId]?.[activeUserId] ?? 'viewer' : 'member'
   const cloudApiUrl = process.env.EXPO_PUBLIC_SPLITCLUB_API_URL?.replace(/\/$/, '') ?? ''
   const cloudSyncReady = Boolean(cloudApiUrl && authSession)
@@ -508,6 +523,7 @@ function SplitClubApp() {
         user: {
           id: userInfo.sub ?? activeUser.id,
           email: userInfo.email,
+          phone: userInfo.phone_number,
           name: userInfo.name ?? userInfo.given_name ?? activeUser.name,
           avatar: userInfo.picture,
           provider: config.provider,
@@ -588,6 +604,68 @@ function SplitClubApp() {
       })
       setSyncState(`${label} saved locally; cloud push failed`)
     }
+  }
+
+  const saveAccountIdentity = async () => {
+    const name = profileName.trim()
+    const email = profileEmail.trim().toLowerCase()
+    const phone = profilePhone.trim()
+    if (!name) {
+      Alert.alert('Name required', 'Add a display name before saving your account.')
+      return
+    }
+    if (!email && !phone) {
+      Alert.alert('Contact required', 'Link an email or phone so invites can be verified against your account.')
+      return
+    }
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      Alert.alert('Check email', 'Add a valid email address or leave it blank.')
+      return
+    }
+
+    const updatedMember = {
+      id: activeUser.id,
+      name,
+      email: email || undefined,
+      phone: phone || undefined,
+      avatar: activeUser.avatar ?? name.slice(0, 2).toUpperCase(),
+      preferredPayment: profilePayment,
+    }
+    setLedger((current) => {
+      const exists = current.members.some((member) => member.id === updatedMember.id)
+      return {
+        ...current,
+        members: exists
+          ? current.members.map((member) => (member.id === updatedMember.id ? { ...member, ...updatedMember } : member))
+          : [updatedMember, ...current.members],
+      }
+    })
+    setIdentityStatus(email && phone ? 'Email and phone linked' : email ? 'Email linked' : 'Phone linked')
+    setSyncState('Account identity saved locally')
+
+    if (authSession) {
+      const nextSession = {
+        ...authSession,
+        user: {
+          ...authSession.user,
+          id: updatedMember.id,
+          name: updatedMember.name,
+          email: updatedMember.email,
+          phone: updatedMember.phone,
+          avatar: updatedMember.avatar,
+        },
+      }
+      await saveSession(nextSession)
+      setAuthSession(nextSession)
+    }
+
+    pushCloudJson('/api/account', {
+      name: updatedMember.name,
+      email: updatedMember.email,
+      phone: updatedMember.phone,
+      avatar: updatedMember.avatar,
+      preferredPayment: updatedMember.preferredPayment,
+    }, 'Account identity', 'PUT').catch(() => undefined)
   }
 
   const addExpense = () => {
@@ -1391,6 +1469,16 @@ function SplitClubApp() {
     refreshSession,
     activeUserId,
     setActiveUserId,
+    profileName,
+    setProfileName,
+    profileEmail,
+    setProfileEmail,
+    profilePhone,
+    setProfilePhone,
+    profilePayment,
+    setProfilePayment,
+    identityStatus,
+    saveAccountIdentity,
     selectedRole,
     selectedGroup,
     groupSettingsOpen,
@@ -2754,41 +2842,75 @@ function MoreScreen({ state }) {
 
 function AccountScreen({ state }) {
   return (
-    <Panel title="Profile and privacy">
-      <YStack gap="$3">
-        <XStack ai="center" jc="space-between" gap="$3">
-          <YStack>
-            <Text color="#09090b" fontSize={16} fontWeight="900">
-              {state.activeUser.name}
-            </Text>
-            <Muted>
-              {state.authSession ? 'Signed in' : 'Signed out'} · {state.activeUser.email ?? state.activeUser.phone ?? state.activeUser.id} · {state.selectedRole}
-            </Muted>
-          </YStack>
-        </XStack>
-        <YStack bg="#f4f4f5" borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3" gap="$2">
+    <>
+      <Panel title="Profile and privacy">
+        <YStack gap="$3">
           <XStack ai="center" jc="space-between" gap="$3">
-            <YStack flex={1}>
-              <Text color="#09090b" fontSize={14} fontWeight="900">
-                Session
+            <YStack>
+              <Text color="#09090b" fontSize={16} fontWeight="900">
+                {state.activeUser.name}
               </Text>
-              <Muted>{state.authSession ? `Expires ${new Date(state.authSession.expiresAt).toLocaleString()}` : 'OIDC sign-in is ready for Android and web.'}</Muted>
+              <Muted>
+                {state.authSession ? 'Signed in' : 'Signed out'} · {state.activeUser.email ?? state.activeUser.phone ?? state.activeUser.id} · {state.selectedRole}
+              </Muted>
             </YStack>
-            <SizableText color="#09090b" size="$2" fontWeight="900">
-              {state.authSession?.user.provider ?? 'clerk'}
-            </SizableText>
           </XStack>
-          <XStack gap="$2" fw="wrap">
-            {state.authSession ? (
-              <>
-                <SecondaryButton icon={<RefreshCcw size={16} color="#09090b" />} label="Refresh" onPress={state.refreshSession} />
-                <SecondaryButton icon={<LogOut size={16} color="#09090b" />} label="Sign out" onPress={state.signOut} />
-              </>
-            ) : (
-              <SecondaryButton icon={<LogIn size={16} color="#09090b" />} label="Sign in" onPress={state.signIn} />
-            )}
-          </XStack>
+          <YStack bg="#f4f4f5" borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3" gap="$2">
+            <XStack ai="center" jc="space-between" gap="$3">
+              <YStack flex={1}>
+                <Text color="#09090b" fontSize={14} fontWeight="900">
+                  Session
+                </Text>
+                <Muted>{state.authSession ? `Expires ${new Date(state.authSession.expiresAt).toLocaleString()}` : 'OIDC sign-in is ready for Android and web.'}</Muted>
+              </YStack>
+              <SizableText color="#09090b" size="$2" fontWeight="900">
+                {state.authSession?.user.provider ?? 'clerk'}
+              </SizableText>
+            </XStack>
+            <XStack gap="$2" fw="wrap">
+              {state.authSession ? (
+                <>
+                  <SecondaryButton icon={<RefreshCcw size={16} color="#09090b" />} label="Refresh" onPress={state.refreshSession} />
+                  <SecondaryButton icon={<LogOut size={16} color="#09090b" />} label="Sign out" onPress={state.signOut} />
+                </>
+              ) : (
+                <SecondaryButton icon={<LogIn size={16} color="#09090b" />} label="Sign in" onPress={state.signIn} />
+              )}
+            </XStack>
+          </YStack>
         </YStack>
+      </Panel>
+
+      <Panel title="Linked identity">
+        <YStack gap="$3">
+          <FeatureList
+            rows={[
+              ['Invite matching', 'Group invites can be accepted only when your linked email or phone matches the invite.'],
+              ['Status', state.identityStatus],
+            ]}
+          />
+          <Field label="Display name">
+            <Input value={state.profileName} onChangeText={state.setProfileName} placeholder="Your name" {...inputProps} />
+          </Field>
+          <Field label="Email">
+            <Input value={state.profileEmail} onChangeText={state.setProfileEmail} placeholder="you@example.com" autoCapitalize="none" keyboardType="email-address" {...inputProps} />
+          </Field>
+          <Field label="Phone">
+            <Input value={state.profilePhone} onChangeText={state.setProfilePhone} placeholder="+91 90000 00000" keyboardType="phone-pad" {...inputProps} />
+          </Field>
+          <Field label="Preferred payment">
+            <XStack gap="$1.5" fw="wrap">
+              {state.paymentMethods.map((method) => (
+                <Chip key={method} label={method.toUpperCase()} active={state.profilePayment === method} onPress={() => state.setProfilePayment(method)} />
+              ))}
+            </XStack>
+          </Field>
+          <PrimaryButton icon={<ShieldCheck size={17} color="#ffffff" />} label="Save identity" onPress={state.saveAccountIdentity} />
+        </YStack>
+      </Panel>
+
+      <Panel title="Profile switcher">
+        <YStack gap="$3">
         <Field label="Switch profile">
           <XStack gap="$1.5" fw="wrap">
             {state.ledger.members.slice(0, 5).map((member) => (
@@ -2809,8 +2931,9 @@ function AccountScreen({ state }) {
             </SizableText>
           </XStack>
         </Button>
-      </YStack>
-    </Panel>
+        </YStack>
+      </Panel>
+    </>
   )
 }
 

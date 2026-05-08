@@ -73,6 +73,38 @@ describe('SplitClub Worker API', () => {
     expect(outsiderBody.error).toBe('forbidden')
   })
 
+  test('updates the authenticated account identity used by invite matching', async () => {
+    const env = createEnv()
+
+    const updateResponse = await request(
+      '/api/account',
+      {
+        method: 'PUT',
+        body: JSON.stringify({
+          name: 'Kishan Linked',
+          email: 'linked@example.com',
+          phone: '+91 99999 99999',
+          preferredPayment: 'upi',
+        }),
+      },
+      env,
+    )
+    const updateBody = (await updateResponse.json()) as { user: { id: string; name: string; email: string; phone: string; preferredPayment: string } }
+    expect(updateResponse.status).toBe(200)
+    expect(updateBody.user).toMatchObject({
+      id: 'kishan',
+      name: 'Kishan Linked',
+      email: 'linked@example.com',
+      phone: '+91 99999 99999',
+      preferredPayment: 'upi',
+    })
+
+    const sessionResponse = await request('/api/auth/session', {}, env)
+    const sessionBody = (await sessionResponse.json()) as { user: { email?: string; phone?: string } }
+    expect(sessionBody.user).toMatchObject({ email: 'linked@example.com', phone: '+91 99999 99999' })
+    expect(queueMessages.some((message) => JSON.stringify(message).includes('account.updated'))).toBe(true)
+  })
+
   test('lists groups and members from the store', async () => {
     const env = createEnv()
 
