@@ -451,7 +451,10 @@ function SplitClubApp() {
             body: plan.body,
             data: { sourceExpenseId: plan.sourceExpenseId },
           },
-          trigger: new Date(plan.triggerAt),
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.DATE,
+            date: new Date(plan.triggerAt),
+          },
         }),
       ),
     )
