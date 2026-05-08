@@ -18,10 +18,33 @@ SplitClub is a free, mobile-first expense splitting app built with React Native 
 bun install
 bun run web
 bun run android
+bun run android:dev
+bun run android:doctor
+bun run android:prebuild
+bun run android:run
 bun test
 bun run typecheck
 bun run db:migrate:local
 bun run worker:dev
+```
+
+## Android Verification
+
+SplitClub targets Expo SDK 55 with React Native 0.83 and React 19.2. Use the Expo-compatible package set from `expo install --check`; some npm packages publish newer majors before Expo validates them for the SDK.
+
+Native Android verification needs a local JDK and Android SDK tools (`adb`, `emulator`, and `sdkmanager`). Run:
+
+```sh
+bun run android:doctor
+bunx expo install --check
+bun run android:prebuild
+bun run android:run
+```
+
+The web target should still be verified with:
+
+```sh
+bunx expo export --platform web
 ```
 
 ## Authentication
@@ -38,6 +61,6 @@ See `docs/receipts.md` for the R2 metadata schema, OCR route, and Workers AI con
 
 ## Current Scope
 
-The first foundation includes a working seeded app surface with dedicated Activity, Groups, Add, Balances, and Settings screens. It supports expense creation, equal/exact/percent/share/adjustment split controls, settlement suggestions, search, spending totals, currency switching, offline persistence, CSV export preparation, and documented feature parity targets.
+The current foundation includes a working seeded app surface with dedicated Activity, Groups, Add, Balances, and More screens. It supports expense creation, equal/exact/percent/share/adjustment split controls, receipt itemization and OCR review, recurring reminders, settlement suggestions, search, spending totals, currency switching, offline persistence, CSV export preparation, and documented feature parity targets.
 
 See `docs/splitwise-feature-map.md` for the Splitwise research map and follow-up implementation tickets.
