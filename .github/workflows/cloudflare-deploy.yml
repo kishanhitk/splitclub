@@ -56,6 +56,25 @@ jobs:
       - name: Test
         run: bun test
 
+      - name: Validate Cloudflare production config
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is required for production Worker deploys"
+              missing=1
+            fi
+          done
+          if grep -q "replace-with-cloudflare-d1-id" wrangler.toml; then
+            echo "::error::wrangler.toml still contains the D1 database_id placeholder"
+            missing=1
+          fi
+          exit "$missing"
+
       - name: Apply D1 migrations
         uses: cloudflare/wrangler-action@v3.15.0
         with:

@@ -30,6 +30,16 @@ AUTH_JWKS_URL=https://your-clerk-domain/.well-known/jwks.json
 AUTH_PROVIDER_NAME=clerk
 ```
 
+Production deploys should store issuer, audience, and JWKS URL as Worker secrets:
+
+```sh
+wrangler secret put AUTH_JWT_ISSUER --name splitclub-api
+wrangler secret put AUTH_JWT_AUDIENCE --name splitclub-api
+wrangler secret put AUTH_JWKS_URL --name splitclub-api
+```
+
+`AUTH_PROVIDER_NAME=clerk` is a non-secret Worker variable in `wrangler.toml`.
+
 The Worker requires `Authorization: Bearer <token>` on every ledger route except `/api/health`, `/api/features`, `/api/auth/config`, and public invite landing pages.
 
 `GET /api/auth/config` returns a secret-safe readiness summary for the app Account screen and production operators. It reports whether issuer, audience, and JWKS bindings are present, the issuer host, required claims, and supported signing algorithms without returning the JWKS URL or signing material.
