@@ -1,7 +1,7 @@
 {
   "name": "splitclub",
   "version": "1.0.0",
-  "main": "index.ts",
+  "main": "index.js",
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
@@ -13,23 +13,25 @@
     "worker:deploy": "wrangler deploy"
   },
   "dependencies": {
-    "@expo/metro-runtime": "~6.1.2",
+    "@expo/metro-runtime": "^55.0.11",
     "@react-native-async-storage/async-storage": "2.2.0",
-    "expo": "~54.0.33",
-    "expo-status-bar": "~3.0.9",
+    "@tamagui/config": "^2.0.0-rc.41",
+    "expo": "^55.0.23",
+    "expo-status-bar": "^55.0.6",
     "hono": "^4.12.18",
     "lucide-react-native": "^1.14.0",
-    "react": "19.1.0",
-    "react-dom": "19.1.0",
-    "react-native": "0.81.5",
-    "react-native-svg": "15.12.1",
-    "react-native-web": "^0.21.0",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "react-native": "0.83.6",
+    "react-native-svg": "15.15.3",
+    "react-native-web": "^0.21.2",
+    "tamagui": "^2.0.0-rc.41",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260508.1",
     "@types/bun": "^1.3.13",
-    "@types/react": "~19.1.0",
+    "@types/react": "^19.2.14",
     "typescript": "~5.9.2",
     "wrangler": "^4.90.0"
   },

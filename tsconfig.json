@@ -1,6 +1,9 @@
 {
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
-    "strict": true
-  }
+    "allowJs": false,
+    "strict": true,
+    "types": ["bun-types"]
+  },
+  "include": ["src/**/*.ts", "worker/**/*.ts"]
 }
