@@ -1,0 +1,115 @@
+name: Android Release
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: splitclub-android-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CI: true
+  EXPO_NO_TELEMETRY: 1
+
+jobs:
+  signed-apk:
+    name: Signed Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+
+      - name: Setup Node
+        uses: actions/setup-node@v6.4.0
+        with:
+          node-version: 24
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2.2.0
+        with:
+          bun-version: latest
+
+      - name: Setup Java
+        uses: actions/setup-java@v5.2.0
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4.0.1
+
+      - name: Check signing secrets
+        env:
+          ANDROID_RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+          ANDROID_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
+          ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+        run: |
+          missing=0
+          for name in ANDROID_RELEASE_KEYSTORE_BASE64 ANDROID_RELEASE_KEYSTORE_PASSWORD ANDROID_RELEASE_KEY_ALIAS ANDROID_RELEASE_KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is required for signed Android release builds"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Check Expo dependency alignment
+        run: bunx expo install --check
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Test
+        run: bun test
+
+      - name: Generate Android project
+        run: bunx expo prebuild --platform android --no-install
+
+      - name: Build Android release APK
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Sign Android release APK
+        env:
+          ANDROID_RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+          ANDROID_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
+          ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist android/app/release-signing
+          printf '%s' "$ANDROID_RELEASE_KEYSTORE_BASE64" | base64 --decode > android/app/release-signing/splitclub-release.jks
+          unsigned_apk="$(find android/app/build/outputs/apk/release -name '*release*.apk' | head -n 1)"
+          if [ -z "$unsigned_apk" ]; then
+            echo "::error::Release APK was not produced"
+            exit 1
+          fi
+          build_tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          "$build_tools/zipalign" -f -p 4 "$unsigned_apk" dist/splitclub-release-aligned.apk
+          "$build_tools/apksigner" sign \
+            --ks android/app/release-signing/splitclub-release.jks \
+            --ks-key-alias "$ANDROID_RELEASE_KEY_ALIAS" \
+            --ks-pass "pass:$ANDROID_RELEASE_KEYSTORE_PASSWORD" \
+            --key-pass "pass:$ANDROID_RELEASE_KEY_PASSWORD" \
+            --out dist/splitclub-release.apk \
+            dist/splitclub-release-aligned.apk
+          "$build_tools/apksigner" verify --print-certs dist/splitclub-release.apk
+          shasum -a 256 dist/splitclub-release.apk > dist/splitclub-release.apk.sha256
+
+      - name: Upload signed Android APK
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: splitclub-android-signed-apk
+          path: |
+            dist/splitclub-release.apk
+            dist/splitclub-release.apk.sha256
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
