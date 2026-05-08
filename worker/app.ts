@@ -246,8 +246,14 @@ export function createApp() {
 
   app.delete('/api/groups/:id/members/:userId', async (c) => {
     const store = getStore(c.env)
-    await requireGroupAccess(store, currentMember(c.get('authMember')).id, c.req.param('id'))
-    await store.removeMembership(c.req.param('id'), c.req.param('userId'))
+    const groupId = c.req.param('id')
+    await requireGroupAccess(store, currentMember(c.get('authMember')).id, groupId)
+    const ledger = await store.getLedger()
+    const balance = calculateBalances(ledger, groupId, ledger.defaultCurrency).find((item) => item.memberId === c.req.param('userId'))
+    if (balance && Math.abs(balance.amount) >= 0.01) {
+      return c.json({ error: 'member_has_balance', message: 'Settle this member before removing them from the group.', balance }, 409)
+    }
+    await store.removeMembership(groupId, c.req.param('userId'))
     await c.env.SYNC_QUEUE?.send({ type: 'membership.removed', groupId: c.req.param('id'), userId: c.req.param('userId'), createdAt: new Date().toISOString() })
     return c.json({ ok: true })
   })
