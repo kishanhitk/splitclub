@@ -6,6 +6,7 @@ import {
   calculateDirectSettlements,
   calculateFriendBalanceSummaries,
   calculateOwedShares,
+  calculateReceiptItemSplits,
   canMemberSeeBalance,
   canMemberSeeExpense,
   convertExpensesToCurrency,
@@ -31,6 +32,19 @@ describe('split engine', () => {
     const shares = calculateOwedShares(dinner!)
     expect(shares.reduce((sum, share) => sum + share.amount, 0)).toBe(6800)
     expect(shares.find((share) => share.memberId === 'dev')?.amount).toBe(2040)
+  })
+
+  test('turns receipt item assignments into exact split shares', () => {
+    const splits = calculateReceiptItemSplits([
+      { id: 'starter', label: 'Starter', amount: 300, assignedTo: ['kishan', 'anya'] },
+      { id: 'main', label: 'Main', amount: 900, assignedTo: ['dev'] },
+    ], ['kishan', 'anya', 'dev'], 1500)
+
+    expect(splits).toEqual([
+      { memberId: 'kishan', value: 250 },
+      { memberId: 'anya', value: 250 },
+      { memberId: 'dev', value: 1000 },
+    ])
   })
 
   test('calculates group balances in the requested currency', () => {

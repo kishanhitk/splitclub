@@ -196,6 +196,42 @@ export function calculateOwedShares(expense: Expense): Balance[] {
   )
 }
 
+export function calculateReceiptItemSplits(
+  receiptItems: ReceiptItem[],
+  participantIds: string[],
+  totalAmount?: number,
+): SplitShare[] {
+  const totals = new Map(participantIds.map((memberId) => [memberId, 0]))
+  for (const item of receiptItems) {
+    const assignedTo = item.assignedTo.filter((memberId) => totals.has(memberId))
+    const members = assignedTo.length > 0 ? assignedTo : participantIds
+    if (members.length === 0) continue
+    const shares = distributeRemainder(
+      members.map((memberId) => ({ memberId, amount: item.amount / members.length })),
+      item.amount,
+    )
+    for (const share of shares) {
+      totals.set(share.memberId, roundMoney((totals.get(share.memberId) ?? 0) + share.amount))
+    }
+  }
+
+  if (totalAmount !== undefined && participantIds.length > 0) {
+    const currentTotal = Array.from(totals.values()).reduce((sum, value) => sum + value, 0)
+    const remainder = roundMoney(totalAmount - currentTotal)
+    if (Math.abs(remainder) >= 0.01) {
+      const remainderShares = distributeRemainder(
+        participantIds.map((memberId) => ({ memberId, amount: remainder / participantIds.length })),
+        remainder,
+      )
+      for (const share of remainderShares) {
+        totals.set(share.memberId, roundMoney((totals.get(share.memberId) ?? 0) + share.amount))
+      }
+    }
+  }
+
+  return participantIds.map((memberId) => ({ memberId, value: roundMoney(totals.get(memberId) ?? 0) }))
+}
+
 export function convertAmount(amount: number, from: string, to: string, rates: Record<string, number>) {
   if (from === to) return roundMoney(amount)
   const fromRate = rates[from] ?? 1
