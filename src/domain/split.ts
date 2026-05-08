@@ -58,6 +58,7 @@ export type Expense = {
   date: string
   notes?: string
   attachmentName?: string
+  receiptId?: string
   receiptItems?: ReceiptItem[]
   recurrence?: Recurrence
   reminderDays?: number

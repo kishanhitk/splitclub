@@ -160,6 +160,7 @@ function SplitClubApp() {
     { id: 'item-1', label: 'Cab fare', amount: 2400, assignedTo: ['kishan', 'anya', 'dev', 'mia'] },
     { id: 'item-2', label: 'Toll', amount: 1200, assignedTo: ['kishan', 'anya', 'dev', 'mia'] },
   ])
+  const [selectedReceiptId, setSelectedReceiptId] = useState(null)
   const [cloudReceipts, setCloudReceipts] = useState([])
   const [receiptLibraryStatus, setReceiptLibraryStatus] = useState('Not loaded')
   const [activeUserId, setActiveUserId] = useState('kishan')
@@ -720,6 +721,7 @@ function SplitClubApp() {
       date,
       notes: notes || `${expenseKind} · ${splitMode} split created on ${Platform.OS}`,
       attachmentName: attachmentName || undefined,
+      receiptId: selectedReceiptId || undefined,
       receiptItems: receiptItems.map((item) => ({
         ...item,
         amount: Number(item.amount),
@@ -990,6 +992,7 @@ function SplitClubApp() {
     setAttachmentName(body.receipt?.fileName ?? receiptFile.name ?? 'receipt')
     if (body.receipt) {
       setCloudReceipts((receipts) => [body.receipt, ...receipts.filter((receipt) => receipt.id !== body.receipt.id)])
+      setSelectedReceiptId(body.receipt.id)
       setReceiptLibraryStatus('Receipt saved to cloud library')
     }
     setSyncState('Receipt uploaded')
@@ -1020,6 +1023,7 @@ function SplitClubApp() {
     const receipt = cloudReceipts.find((candidate) => candidate.id === receiptId)
     if (!receipt) return
     setAttachmentName(receipt.fileName ?? 'receipt')
+    setSelectedReceiptId(receipt.id)
     setReceiptItems(receipt.extractedItems ?? [])
     if (receipt.ocrText) setReceiptOcrText(receipt.ocrText)
     setSyncState('Receipt items applied')
@@ -1049,6 +1053,7 @@ function SplitClubApp() {
       if (body.receipt) {
         setCloudReceipts((receipts) => [body.receipt, ...receipts.filter((receipt) => receipt.id !== body.receipt.id)])
         setAttachmentName(body.receipt.fileName ?? 'receipt')
+        setSelectedReceiptId(body.receipt.id)
       }
       setReceiptItems(body.extractedItems ?? body.receipt?.extractedItems ?? [])
       setReceiptLibraryStatus(`OCR retried: ${(body.extractedItems ?? []).length} items`)
@@ -1631,6 +1636,7 @@ function SplitClubApp() {
     itemAmount,
     setItemAmount,
     receiptItems,
+    selectedReceiptId,
     cloudReceipts,
     receiptLibraryStatus,
     itemizedTotal,
@@ -2651,30 +2657,39 @@ function AddExpenseScreen({ state }) {
               </YStack>
               <SecondaryButton icon={<RefreshCcw size={16} color="#09090b" />} label="Load" onPress={state.loadCloudReceipts} />
             </XStack>
-            {state.cloudReceipts.slice(0, 3).map((receipt) => (
-              <XStack key={receipt.id} ai="center" jc="space-between" gap="$3" py="$2" borderTopWidth={1} borderColor="#f4f4f5">
-                <YStack flex={1}>
-                  <Text color="#09090b" fontSize={14} fontWeight="900">
-                    {receipt.fileName}
-                  </Text>
-                  <Muted>
-                    {receipt.ocrStatus} · {receipt.extractedItems?.length ?? 0} items · {new Date(receipt.createdAt).toLocaleDateString()}
-                  </Muted>
-                </YStack>
-                <XStack gap="$3">
-                  <Button unstyled onPress={() => state.retryCloudReceipt(receipt.id)}>
-                    <SizableText color="#71717a" size="$2" fontWeight="900">
-                      Retry
-                    </SizableText>
-                  </Button>
-                  <Button unstyled onPress={() => state.applyCloudReceipt(receipt.id)}>
-                    <SizableText color="#09090b" size="$2" fontWeight="900">
-                      Use
-                    </SizableText>
-                  </Button>
+            {state.cloudReceipts.slice(0, 3).map((receipt) => {
+              const latestReview = receipt.reviewHistory?.[0]
+              const selected = state.selectedReceiptId === receipt.id
+              const reviewLabel = latestReview
+                ? `${receipt.reviewHistory.length} reviews · ${latestReview.action}`
+                : new Date(receipt.createdAt).toLocaleDateString()
+              const lifecycleLabel = [receipt.expenseId ? 'attached' : null, selected ? 'selected' : null].filter(Boolean).join(' · ')
+              return (
+                <XStack key={receipt.id} ai="center" jc="space-between" gap="$3" py="$2" borderTopWidth={1} borderColor="#f4f4f5">
+                  <YStack flex={1}>
+                    <Text color="#09090b" fontSize={14} fontWeight="900">
+                      {receipt.fileName}
+                    </Text>
+                    <Muted>
+                      {receipt.ocrStatus} · {receipt.extractedItems?.length ?? 0} items · {reviewLabel}
+                    </Muted>
+                    {lifecycleLabel ? <Muted>{lifecycleLabel}</Muted> : null}
+                  </YStack>
+                  <XStack gap="$3">
+                    <Button unstyled onPress={() => state.retryCloudReceipt(receipt.id)}>
+                      <SizableText color="#71717a" size="$2" fontWeight="900">
+                        Retry
+                      </SizableText>
+                    </Button>
+                    <Button unstyled onPress={() => state.applyCloudReceipt(receipt.id)}>
+                      <SizableText color="#09090b" size="$2" fontWeight="900">
+                        Use
+                      </SizableText>
+                    </Button>
+                  </XStack>
                 </XStack>
-              </XStack>
-            ))}
+              )
+            })}
           </YStack>
           <Field label="OCR text">
             <Input value={state.receiptOcrText} onChangeText={state.setReceiptOcrText} placeholder="Item name 12.34" {...inputProps} />

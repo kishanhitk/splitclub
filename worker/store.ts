@@ -57,6 +57,18 @@ export type ReceiptRecord = {
   ocrStatus: 'pending' | 'complete'
   ocrText?: string
   extractedItems: ExtractedReceiptItem[]
+  reviewHistory?: ReceiptReviewEvent[]
+  createdAt: string
+}
+
+export type ReceiptReviewEvent = {
+  id: string
+  receiptId: string
+  actorId?: string
+  action: 'uploaded' | 'retried' | 'linked'
+  source: 'upload' | 'review_text' | 'stored_object' | 'expense_link'
+  ocrStatus: ReceiptRecord['ocrStatus']
+  itemCount: number
   createdAt: string
 }
 
@@ -87,9 +99,10 @@ export type LedgerStore = {
   addExpenseComment(expenseId: string, input: ExpenseCommentInput, memberId: string): Promise<ExpenseComment>
   getExpenseDetails(expenseId: string): Promise<{ expense?: Expense; comments: ExpenseComment[]; history: ExpenseHistoryEvent[] }>
   recordSettlement(input: SettlementInput): Promise<Expense>
-  createReceipt(input: Omit<ReceiptRecord, 'createdAt'>): Promise<ReceiptRecord>
+  createReceipt(input: Omit<ReceiptRecord, 'createdAt' | 'reviewHistory'>, actorId?: string): Promise<ReceiptRecord>
   getReceipt(receiptId: string, ownerId: string): Promise<ReceiptRecord | undefined>
-  updateReceiptExtraction(receiptId: string, ownerId: string, input: { ocrStatus: ReceiptRecord['ocrStatus']; ocrText?: string; extractedItems: ExtractedReceiptItem[] }, actorId?: string): Promise<ReceiptRecord>
+  updateReceiptExtraction(receiptId: string, ownerId: string, input: { ocrStatus: ReceiptRecord['ocrStatus']; ocrText?: string; extractedItems: ExtractedReceiptItem[]; source?: ReceiptReviewEvent['source'] }, actorId?: string): Promise<ReceiptRecord>
+  linkReceiptToExpense(receiptId: string, ownerId: string, expenseId: string, actorId?: string): Promise<ReceiptRecord>
   listReceipts(ownerId: string): Promise<ReceiptRecord[]>
   listAuditEvents(): Promise<AuditEvent[]>
 }
@@ -122,6 +135,7 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
   const roles = new Map<string, GroupRole>()
   const invites: GroupInvite[] = []
   const receipts: ReceiptRecord[] = []
+  const receiptReviewEvents: ReceiptReviewEvent[] = []
 
   for (const group of ledger.groups) {
     group.memberIds.forEach((memberId, index) => roles.set(`${group.id}:${memberId}`, index === 0 ? 'owner' : 'member'))
@@ -148,9 +162,38 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
 
   const decorateExpense = (expense: Expense): Expense => ({
     ...expense,
+    receiptId: receipts.find((receipt) => receipt.expenseId === expense.id)?.id ?? expense.receiptId,
     comments: expenseComments(expense.id),
     history: expenseHistory(expense.id),
   })
+
+  const reviewHistory = (receiptId: string) =>
+    receiptReviewEvents
+      .filter((event) => event.receiptId === receiptId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+
+  const decorateReceipt = (receipt: ReceiptRecord): ReceiptRecord => ({
+    ...receipt,
+    reviewHistory: reviewHistory(receipt.id),
+  })
+
+  const addReceiptReview = (
+    receipt: ReceiptRecord,
+    action: ReceiptReviewEvent['action'],
+    source: ReceiptReviewEvent['source'],
+    actorId?: string,
+  ) => {
+    receiptReviewEvents.unshift({
+      id: makeId('receipt_review'),
+      receiptId: receipt.id,
+      actorId,
+      action,
+      source,
+      ocrStatus: receipt.ocrStatus,
+      itemCount: receipt.extractedItems.length,
+      createdAt: now(),
+    })
+  }
 
   const findExpense = (expenseId: string) => ledger.expenses.find((expense) => expense.id === expenseId)
 
@@ -366,6 +409,7 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
         date: input.date,
         notes: input.notes,
         attachmentName: input.attachmentName,
+        receiptId: input.receiptId,
         receiptItems: input.receiptItems.map((item) => ({
           id: item.id ?? makeId('receipt_item'),
           label: item.label,
@@ -470,14 +514,16 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
       audit('settlement', expense.id, 'recorded', input)
       return expense
     },
-    async createReceipt(input) {
+    async createReceipt(input, actorId) {
       const receipt = { ...input, createdAt: now() }
       receipts.unshift(receipt)
+      addReceiptReview(receipt, 'uploaded', input.ocrText ? 'review_text' : 'upload', actorId)
       audit('receipt', receipt.id, 'created', receipt)
-      return structuredClone(receipt)
+      return structuredClone(decorateReceipt(receipt))
     },
     async getReceipt(receiptId, ownerId) {
-      return structuredClone(receipts.find((receipt) => receipt.id === receiptId && receipt.ownerId === ownerId))
+      const receipt = receipts.find((candidate) => candidate.id === receiptId && candidate.ownerId === ownerId)
+      return receipt ? structuredClone(decorateReceipt(receipt)) : undefined
     },
     async updateReceiptExtraction(receiptId, ownerId, input, actorId) {
       const receipt = receipts.find((candidate) => candidate.id === receiptId && candidate.ownerId === ownerId)
@@ -489,11 +535,25 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
         extractedItems: input.extractedItems,
       }
       receipts.splice(receipts.indexOf(receipt), 1, updated)
+      addReceiptReview(updated, 'retried', input.source ?? 'stored_object', actorId)
       audit('receipt', receiptId, 'retried', updated, actorId)
-      return structuredClone(updated)
+      return structuredClone(decorateReceipt(updated))
+    },
+    async linkReceiptToExpense(receiptId, ownerId, expenseId, actorId) {
+      const receipt = receipts.find((candidate) => candidate.id === receiptId && candidate.ownerId === ownerId)
+      if (!receipt) throw new Error('Receipt not found')
+      const updated = { ...receipt, expenseId }
+      receipts.splice(receipts.indexOf(receipt), 1, updated)
+      ledger = {
+        ...ledger,
+        expenses: ledger.expenses.map((expense) => expense.id === expenseId ? { ...expense, receiptId } : expense),
+      }
+      addReceiptReview(updated, 'linked', 'expense_link', actorId)
+      audit('receipt', receiptId, 'linked', { expenseId }, actorId)
+      return structuredClone(decorateReceipt(updated))
     },
     async listReceipts(ownerId) {
-      return structuredClone(receipts.filter((receipt) => receipt.ownerId === ownerId))
+      return structuredClone(receipts.filter((receipt) => receipt.ownerId === ownerId).map(decorateReceipt))
     },
     async listAuditEvents() {
       return structuredClone(auditEvents)
@@ -554,6 +614,17 @@ type ReceiptRow = {
   size_bytes: number
   ocr_status: ReceiptRecord['ocrStatus']
   ocr_text?: string
+  created_at: string
+}
+
+type ReceiptReviewRow = {
+  id: string
+  receipt_id: string
+  actor_id?: string
+  action: ReceiptReviewEvent['action']
+  source: ReceiptReviewEvent['source']
+  ocr_status: ReceiptRecord['ocrStatus']
+  item_count: number
   created_at: string
 }
 
@@ -621,6 +692,11 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
     )
   }
 
+  const receiptIdForExpense = async (expenseId: string) => {
+    const row = await db.prepare('SELECT id FROM receipts WHERE expense_id = ? ORDER BY created_at DESC LIMIT 1').bind(expenseId).first<{ id: string }>()
+    return row?.id
+  }
+
   const listComments = async (expenseId: string): Promise<ExpenseComment[]> => {
     const result = await db
       .prepare('SELECT id, expense_id, member_id, body, created_at FROM expense_comments WHERE expense_id = ? AND deleted_at IS NULL ORDER BY created_at ASC')
@@ -666,6 +742,7 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
     date: row.date,
     notes: row.notes,
     attachmentName: row.attachment_name,
+    receiptId: await receiptIdForExpense(row.id),
     receiptItems: await listReceiptItems(row.id),
     recurrence: row.recurrence,
     reminderDays: row.reminder_days,
@@ -683,6 +760,37 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
       .prepare('INSERT INTO audit_events (id, actor_id, entity_type, entity_id, action, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .bind(makeId('audit'), actorId, entityType, entityId, action, JSON.stringify(payload), now())
       .run()
+  }
+
+  const addReceiptReview = async (
+    receiptId: string,
+    action: ReceiptReviewEvent['action'],
+    source: ReceiptReviewEvent['source'],
+    ocrStatus: ReceiptRecord['ocrStatus'],
+    itemCount: number,
+    actorId?: string,
+  ) => {
+    await db
+      .prepare('INSERT INTO receipt_review_events (id, receipt_id, actor_id, action, source, ocr_status, item_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(makeId('receipt_review'), receiptId, actorId, action, source, ocrStatus, itemCount, now())
+      .run()
+  }
+
+  const listReceiptReviewEvents = async (receiptId: string): Promise<ReceiptReviewEvent[]> => {
+    const result = await db
+      .prepare('SELECT id, receipt_id, actor_id, action, source, ocr_status, item_count, created_at FROM receipt_review_events WHERE receipt_id = ? ORDER BY created_at DESC')
+      .bind(receiptId)
+      .all<ReceiptReviewRow>()
+    return result.results.map((row) => ({
+      id: row.id,
+      receiptId: row.receipt_id,
+      actorId: row.actor_id,
+      action: row.action,
+      source: row.source,
+      ocrStatus: row.ocr_status,
+      itemCount: row.item_count,
+      createdAt: row.created_at,
+    }))
   }
 
   const toReceipt = async (row: ReceiptRow): Promise<ReceiptRecord> => {
@@ -706,6 +814,7 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
         amount: item.amount,
         assignedTo: JSON.parse(item.assigned_to_json) as string[],
       })),
+      reviewHistory: await listReceiptReviewEvents(row.id),
       createdAt: row.created_at,
     }
   }
@@ -1137,6 +1246,7 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
         date: input.date ?? existing.date,
         notes: input.notes ?? existing.notes,
         attachmentName: input.attachmentName ?? existing.attachmentName,
+        receiptId: input.receiptId ?? existing.receiptId,
         receiptItems: input.receiptItems ?? existing.receiptItems ?? [],
         recurrence: input.recurrence ?? existing.recurrence ?? 'none',
         reminderDays: input.reminderDays ?? existing.reminderDays,
@@ -1247,7 +1357,7 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
       await audit('settlement', expense.id, 'recorded', input)
       return expense
     },
-    async createReceipt(input) {
+    async createReceipt(input, actorId) {
       await db
         .prepare(
           'INSERT INTO receipts (id, expense_id, owner_user_id, object_key, file_name, content_type, size_bytes, ocr_status, ocr_text) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -1262,6 +1372,7 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
             .run(),
         ),
       )
+      await addReceiptReview(input.id, 'uploaded', input.ocrText ? 'review_text' : 'upload', input.ocrStatus, input.extractedItems.length, actorId)
       await audit('receipt', input.id, 'created', input)
       const row = await db
         .prepare('SELECT id, expense_id, owner_user_id, object_key, file_name, content_type, size_bytes, ocr_status, ocr_text, created_at FROM receipts WHERE id = ?')
@@ -1293,9 +1404,20 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
             .run(),
         ),
       )
+      await addReceiptReview(receiptId, 'retried', input.source ?? 'stored_object', input.ocrStatus, input.extractedItems.length, actorId)
       await audit('receipt', receiptId, 'retried', input, actorId)
       const updated = await this.getReceipt(receiptId, ownerId)
       if (!updated) throw new Error('Receipt was not updated')
+      return updated
+    },
+    async linkReceiptToExpense(receiptId, ownerId, expenseId, actorId) {
+      const receipt = await this.getReceipt(receiptId, ownerId)
+      if (!receipt) throw new Error('Receipt not found')
+      await db.prepare('UPDATE receipts SET expense_id = ? WHERE id = ? AND owner_user_id = ?').bind(expenseId, receiptId, ownerId).run()
+      await addReceiptReview(receiptId, 'linked', 'expense_link', receipt.ocrStatus, receipt.extractedItems.length, actorId)
+      await audit('receipt', receiptId, 'linked', { expenseId }, actorId)
+      const updated = await this.getReceipt(receiptId, ownerId)
+      if (!updated) throw new Error('Receipt was not linked')
       return updated
     },
     async listReceipts(ownerId) {

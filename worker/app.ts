@@ -432,7 +432,16 @@ export function createApp() {
     } else if (payload.paidBy !== member.id && !payload.participants.includes(member.id) && !payload.payments.some((payment) => payment.memberId === member.id)) {
       throw new AuthError('Non-group expenses must include the authenticated user', 403)
     }
-    const expense = await store.createExpense(payload)
+    if (payload.receiptId) {
+      const receipt = await store.getReceipt(payload.receiptId, member.id)
+      if (!receipt) return c.json({ error: 'receipt_not_found', message: 'Receipt is not visible to this user.' }, 404)
+      if (receipt.expenseId) return c.json({ error: 'receipt_already_linked', message: 'Receipt is already attached to another expense.' }, 409)
+    }
+    let expense = await store.createExpense(payload)
+    if (payload.receiptId) {
+      await store.linkReceiptToExpense(payload.receiptId, member.id, expense.id, member.id)
+      expense = (await store.getExpenseDetails(expense.id)).expense ?? { ...expense, receiptId: payload.receiptId }
+    }
     await c.env.SYNC_QUEUE?.send({ type: 'expense.created', expenseId: expense.id, createdAt: new Date().toISOString() })
     return c.json({ expense }, 201)
   })
@@ -463,7 +472,18 @@ export function createApp() {
     if (!nextGroupId && nextPaidBy !== member.id && !nextParticipants.includes(member.id) && !nextPayments.some((payment) => payment.memberId === member.id)) {
       throw new AuthError('Non-group expenses must include the authenticated user', 403)
     }
-    const expense = await store.updateExpense(c.req.param('id'), payload, member.id)
+    if (payload.receiptId) {
+      const receipt = await store.getReceipt(payload.receiptId, member.id)
+      if (!receipt) return c.json({ error: 'receipt_not_found', message: 'Receipt is not visible to this user.' }, 404)
+      if (receipt.expenseId && receipt.expenseId !== existing.id) {
+        return c.json({ error: 'receipt_already_linked', message: 'Receipt is already attached to another expense.' }, 409)
+      }
+    }
+    let expense = await store.updateExpense(c.req.param('id'), payload, member.id)
+    if (payload.receiptId) {
+      await store.linkReceiptToExpense(payload.receiptId, member.id, expense.id, member.id)
+      expense = (await store.getExpenseDetails(expense.id)).expense ?? { ...expense, receiptId: payload.receiptId }
+    }
     await c.env.SYNC_QUEUE?.send({ type: 'expense.updated', expenseId: expense.id, createdAt: new Date().toISOString() })
     return c.json({ expense })
   })
@@ -568,7 +588,7 @@ export function createApp() {
       ocrStatus: extraction.status,
       ocrText: extraction.text,
       extractedItems: extraction.items,
-    })
+    }, member.id)
     await c.env.SYNC_QUEUE?.send({ type: 'receipt.uploaded', receiptId, expenseId, createdAt: new Date().toISOString() })
     return c.json({ receipt, extractedItems: extraction.items }, 201)
   })
@@ -596,6 +616,7 @@ export function createApp() {
         ocrStatus: extraction.status,
         ocrText: extraction.text,
         extractedItems: extraction.items,
+        source: body.ocrText?.trim() ? 'review_text' : 'stored_object',
       },
       member.id,
     )
