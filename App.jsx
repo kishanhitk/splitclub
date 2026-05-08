@@ -48,6 +48,7 @@ import {
 } from './src/domain/split'
 import { parseReceiptText } from './src/domain/receipts'
 import { buildReminderNotifications } from './src/notifications/reminders'
+import { buildLedgerNotifications } from './src/notifications/activity'
 import { getAuthProviderConfig, hasRemoteAuthConfig } from './src/auth/provider'
 import { loadLedger, resetLedger, saveLedger } from './src/storage/offline'
 import { clearSession, createLocalSession, isSessionExpired, loadSession, refreshLocalSession, saveSession, sessionHeaders } from './src/storage/session'
@@ -83,6 +84,7 @@ const navItems = [
 
 const moreDestinations = [
   { id: 'account', label: 'Account', description: 'Profile, privacy, and sign-in', icon: UserCircle },
+  { id: 'notifications', label: 'Notifications', description: 'Recent changes and unread activity', icon: Bell },
   { id: 'currencies', label: 'Currencies', description: 'Rates, defaults, and group conversion', icon: CircleDollarSign },
   { id: 'recurring', label: 'Recurring', description: 'Bills and native reminder scheduling', icon: Repeat },
   { id: 'analytics', label: 'Analytics', description: 'Category spend and monthly trends', icon: BarChart3 },
@@ -144,6 +146,7 @@ function SplitClubApp() {
   const [settlementMethod, setSettlementMethod] = useState('cash')
   const [settlementReference, setSettlementReference] = useState('')
   const [settlementStatus, setSettlementStatus] = useState('recorded')
+  const [readNotificationIds, setReadNotificationIds] = useState([])
   const [authSession, setAuthSession] = useState(null)
   const [syncState, setSyncState] = useState('Offline ready')
 
@@ -198,6 +201,11 @@ function SplitClubApp() {
     () => summarizeCurrencyExposure(ledger, selectedGroupId, currency),
     [ledger, selectedGroupId, currency],
   )
+  const accountNotifications = useMemo(
+    () => buildLedgerNotifications(ledger, new Set(readNotificationIds)).slice(0, 30),
+    [ledger, readNotificationIds],
+  )
+  const unreadNotificationCount = accountNotifications.filter((notification) => !notification.read).length
   const totalSpending = categoryTotals.reduce((sum, item) => sum + item.amount, 0)
   const currentTitle = selectedExpense
     ? 'Expense'
@@ -499,6 +507,15 @@ function SplitClubApp() {
   const applyCurrencyConversion = () => {
     setLedger((current) => convertExpensesToCurrency(current, selectedGroupId, currency, activeUser.id))
     setSyncState(`Converted ${selectedGroup?.name ?? 'non-group expenses'} to ${currency}`)
+  }
+
+  const markNotificationRead = (notificationId) => {
+    setReadNotificationIds((ids) => ids.includes(notificationId) ? ids : [...ids, notificationId])
+  }
+
+  const markAllNotificationsRead = () => {
+    setReadNotificationIds((ids) => [...new Set([...ids, ...accountNotifications.map((notification) => notification.id)])])
+    setSyncState('Notifications read')
   }
 
   const addReceiptItem = () => {
@@ -859,6 +876,10 @@ function SplitClubApp() {
     categoryTotals,
     trendTotals,
     currencyExposure,
+    accountNotifications,
+    unreadNotificationCount,
+    markNotificationRead,
+    markAllNotificationsRead,
     totalSpending,
     currencies,
     applyCurrencyConversion,
@@ -1491,6 +1512,7 @@ function MoreScreen({ state }) {
           <Muted>{selectedDestination.description}</Muted>
         </Panel>
         {state.moreSection === 'account' ? <AccountScreen state={state} /> : null}
+        {state.moreSection === 'notifications' ? <NotificationsScreen state={state} /> : null}
         {state.moreSection === 'currencies' ? <CurrenciesScreen state={state} /> : null}
         {state.moreSection === 'recurring' ? <RecurringBillsScreen state={state} /> : null}
         {state.moreSection === 'analytics' ? <AnalyticsScreen state={state} /> : null}
@@ -1587,6 +1609,52 @@ function AccountScreen({ state }) {
         </Button>
       </YStack>
     </Panel>
+  )
+}
+
+function NotificationsScreen({ state }) {
+  return (
+    <>
+      <Panel title="Unread activity" actionLabel="Read all" onAction={state.markAllNotificationsRead}>
+        <XStack ai="center" jc="space-between" gap="$3">
+          <YStack flex={1}>
+            <Text color="#09090b" fontSize={28} lineHeight={34} fontWeight="900">
+              {state.unreadNotificationCount}
+            </Text>
+            <Muted>{state.accountNotifications.length} recent account changes</Muted>
+          </YStack>
+          <Bell size={20} color="#09090b" />
+        </XStack>
+      </Panel>
+
+      <Panel title="Recent activity">
+        <YStack gap="$2">
+          {state.accountNotifications.map((notification) => (
+            <Button key={notification.id} unstyled onPress={() => state.markNotificationRead(notification.id)}>
+              <XStack ai="center" gap="$3" py="$2.5" borderBottomWidth={1} borderColor="#f4f4f5">
+                <YStack ai="center" jc="center" h={34} w={34} br={999} bg={notification.read ? '#f4f4f5' : '#09090b'}>
+                  <SizableText color={notification.read ? '#09090b' : '#ffffff'} size="$1" fontWeight="900">
+                    {notification.splitwiseType}
+                  </SizableText>
+                </YStack>
+                <YStack flex={1}>
+                  <Text color="#09090b" fontSize={14} fontWeight="900">
+                    {notification.title}
+                  </Text>
+                  <Muted>
+                    {notification.body} · {notification.actorId ? state.memberName(notification.actorId) : 'System'} · {new Date(notification.createdAt).toLocaleDateString()}
+                  </Muted>
+                </YStack>
+                <SizableText color={notification.read ? '#a1a1aa' : '#09090b'} size="$2" fontWeight="900">
+                  {notification.read ? 'Read' : 'New'}
+                </SizableText>
+              </XStack>
+            </Button>
+          ))}
+          {state.accountNotifications.length === 0 ? <Muted>No recent activity yet.</Muted> : null}
+        </YStack>
+      </Panel>
+    </>
   )
 }
 
