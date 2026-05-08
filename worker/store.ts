@@ -266,6 +266,7 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
         id: input.id,
         name: input.name ?? input.email ?? 'SplitClub member',
         email: input.email,
+        phone: input.phone,
         avatar: input.avatar ?? input.name?.slice(0, 2).toUpperCase(),
         preferredPayment: 'cash',
       })
@@ -1031,6 +1032,7 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
           id: input.id,
           name: input.name ?? input.email ?? 'SplitClub member',
           email: input.email,
+          phone: input.phone,
           avatar: input.avatar ?? input.name?.slice(0, 2).toUpperCase(),
           preferredPayment: 'cash',
         }))

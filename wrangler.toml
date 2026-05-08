@@ -20,3 +20,4 @@ binding = "AI"
 
 [vars]
 OCR_MODEL = "@cf/google/gemma-3-12b-it"
+AUTH_PROVIDER_NAME = "clerk"

@@ -199,6 +199,15 @@ function SplitClubApp() {
   const [settlementStatus, setSettlementStatus] = useState('recorded')
   const [readNotificationIds, setReadNotificationIds] = useState([])
   const [authSession, setAuthSession] = useState(null)
+  const [authProviderStatus, setAuthProviderStatus] = useState({
+    provider: getAuthProviderConfig().provider,
+    configured: false,
+    clientConfigured: hasRemoteAuthConfig(),
+    issuerHost: null,
+    checkedAt: null,
+    loading: false,
+    message: 'Provider not checked',
+  })
   const [syncState, setSyncState] = useState('Offline ready')
   const [lastCloudSync, setLastCloudSync] = useState(null)
   const [lastCloudPush, setLastCloudPush] = useState(null)
@@ -341,9 +350,67 @@ function SplitClubApp() {
   const selectedRole = selectedGroupId ? membershipRoles[selectedGroupId]?.[activeUserId] ?? 'viewer' : 'member'
   const cloudApiUrl = process.env.EXPO_PUBLIC_SPLITCLUB_API_URL?.replace(/\/$/, '') ?? ''
   const cloudSyncReady = Boolean(cloudApiUrl && authSession)
+  const loadAuthProviderStatus = async () => {
+    const config = getAuthProviderConfig()
+    const clientConfigured = hasRemoteAuthConfig(config)
+    if (!cloudApiUrl) {
+      setAuthProviderStatus({
+        provider: config.provider,
+        configured: false,
+        clientConfigured,
+        issuerHost: null,
+        checkedAt: new Date().toISOString(),
+        loading: false,
+        message: 'Set EXPO_PUBLIC_SPLITCLUB_API_URL to check Worker auth.',
+      })
+      return
+    }
+
+    setAuthProviderStatus((current) => ({
+      ...current,
+      provider: config.provider,
+      clientConfigured,
+      loading: true,
+      message: 'Checking provider',
+    }))
+
+    try {
+      const response = await fetch(`${cloudApiUrl}/api/auth/config`)
+      if (!response.ok) throw new Error(`Worker returned ${response.status}`)
+      const status = await response.json()
+      const ready = Boolean(status.configured && clientConfigured)
+      setAuthProviderStatus({
+        provider: status.provider ?? config.provider,
+        configured: Boolean(status.configured),
+        clientConfigured,
+        issuerHost: status.issuerHost ?? null,
+        jwksConfigured: Boolean(status.jwksConfigured),
+        audienceConfigured: Boolean(status.audienceConfigured),
+        requiredClaims: status.requiredClaims ?? [],
+        supportedAlgorithms: status.supportedAlgorithms ?? [],
+        checkedAt: new Date().toISOString(),
+        loading: false,
+        message: ready ? 'Provider ready for Android and web sign-in' : status.configured ? 'Worker ready; app client env is missing' : 'Worker auth is missing JWT issuer, audience, or keys',
+      })
+    } catch (error) {
+      setAuthProviderStatus({
+        provider: config.provider,
+        configured: false,
+        clientConfigured,
+        issuerHost: null,
+        checkedAt: new Date().toISOString(),
+        loading: false,
+        message: error instanceof Error ? error.message : 'Provider check failed',
+      })
+    }
+  }
   const selectedGroupDefaultsKey = selectedGroup
     ? `${selectedGroup.id}:${selectedGroup.defaultCurrency}:${selectedGroup.defaultSplitMode}:${selectedGroup.defaultSplits.map((split) => `${split.memberId}-${split.value}`).join('|')}`
     : 'non-group'
+
+  useEffect(() => {
+    loadAuthProviderStatus().catch(() => undefined)
+  }, [cloudApiUrl])
 
   const lifecycleEvent = (expenseId, action, summary) => ({
     id: `history-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -1613,6 +1680,8 @@ function SplitClubApp() {
     ledger,
     activeUser,
     authSession,
+    authProviderStatus,
+    loadAuthProviderStatus,
     signIn,
     signOut,
     refreshSession,
@@ -3063,6 +3132,32 @@ function AccountScreen({ state }) {
               )}
             </XStack>
           </YStack>
+          <YStack bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3" gap="$2.5">
+            <XStack ai="center" jc="space-between" gap="$3">
+              <YStack flex={1}>
+                <Text color="#09090b" fontSize={14} fontWeight="900">
+                  Provider
+                </Text>
+                <Muted>{state.authProviderStatus.message}</Muted>
+              </YStack>
+              <SizableText color="#09090b" size="$2" fontWeight="900">
+                {state.authProviderStatus.provider}
+              </SizableText>
+            </XStack>
+            <YStack gap="$1.5">
+              <StatusLine label="App client" value={state.authProviderStatus.clientConfigured ? 'Ready' : 'Missing issuer or client ID'} />
+              <StatusLine label="Worker" value={state.authProviderStatus.configured ? 'Ready' : 'Not configured'} />
+              <StatusLine label="Issuer" value={state.authProviderStatus.issuerHost ?? 'Not checked'} />
+              <StatusLine label="Claims" value={(state.authProviderStatus.requiredClaims ?? []).join(', ') || 'sub, iss, aud'} />
+            </YStack>
+            <XStack gap="$2" fw="wrap">
+              <SecondaryButton
+                icon={<RefreshCcw size={16} color="#09090b" />}
+                label={state.authProviderStatus.loading ? 'Checking' : 'Check provider'}
+                onPress={state.loadAuthProviderStatus}
+              />
+            </XStack>
+          </YStack>
         </YStack>
       </Panel>
 
@@ -3701,6 +3796,17 @@ function Field({ label, children }) {
       <Label>{label}</Label>
       {children}
     </YStack>
+  )
+}
+
+function StatusLine({ label, value }) {
+  return (
+    <XStack ai="center" jc="space-between" gap="$3">
+      <Muted>{label}</Muted>
+      <SizableText color="#09090b" size="$2" fontWeight="900" flex={1} ta="right">
+        {value}
+      </SizableText>
+    </XStack>
   )
 }
 

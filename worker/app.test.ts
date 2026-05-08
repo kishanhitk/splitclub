@@ -5,6 +5,9 @@ import { createMemoryLedgerStore } from './store'
 
 const queueMessages: unknown[] = []
 const receiptObjects: Array<{ key: string; size: number; contentType?: string }> = []
+const jwksUrl = 'https://issuer.splitclub.test/.well-known/jwks.json'
+const oidcIssuer = 'https://issuer.splitclub.test'
+const oidcAudience = 'splitclub-api'
 
 function createEnv(): Bindings {
   return {
@@ -38,6 +41,52 @@ async function request(path: string, init: RequestInit = {}, env = createEnv(), 
   return app.fetch(new Request(`https://splitclub.test${path}`, { ...init, headers }), env)
 }
 
+async function createSignedBearer(payload: Record<string, unknown>) {
+  const keyPair = await crypto.subtle.generateKey(
+    {
+      name: 'RSASSA-PKCS1-v1_5',
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: 'SHA-256',
+    },
+    true,
+    ['sign', 'verify'],
+  )
+  const publicJwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey) as JsonWebKey & { kid?: string; alg?: string; use?: string }
+  publicJwk.kid = 'splitclub-test-key'
+  publicJwk.alg = 'RS256'
+  publicJwk.use = 'sig'
+  const header = encodeBase64UrlJson({ alg: 'RS256', typ: 'JWT', kid: publicJwk.kid })
+  const body = encodeBase64UrlJson({
+    iss: oidcIssuer,
+    aud: oidcAudience,
+    exp: Math.floor(Date.now() / 1000) + 3600,
+    ...payload,
+  })
+  const signature = await crypto.subtle.sign(
+    { name: 'RSASSA-PKCS1-v1_5' },
+    keyPair.privateKey,
+    new TextEncoder().encode(`${header}.${body}`),
+  )
+  return {
+    token: `${header}.${body}.${encodeBase64UrlBytes(signature)}`,
+    jwks: { keys: [publicJwk] },
+  }
+}
+
+function encodeBase64UrlJson(value: unknown) {
+  return encodeBase64UrlBytes(new TextEncoder().encode(JSON.stringify(value)))
+}
+
+function encodeBase64UrlBytes(value: ArrayBuffer | Uint8Array) {
+  const bytes = value instanceof Uint8Array ? value : new Uint8Array(value)
+  let binary = ''
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte)
+  })
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
+}
+
 describe('SplitClub Worker API', () => {
   test('keeps public metadata open and protects ledger routes', async () => {
     const env = createEnv()
@@ -56,6 +105,80 @@ describe('SplitClub Worker API', () => {
     const groupsBody = (await groupsResponse.json()) as { error: string }
     expect(groupsResponse.status).toBe(401)
     expect(groupsBody.error).toBe('unauthorized')
+  })
+
+  test('reports public auth provider readiness without leaking signing key URLs', async () => {
+    const env = {
+      ...createEnv(),
+      AUTH_PROVIDER_NAME: 'clerk',
+      AUTH_JWKS_URL: jwksUrl,
+      AUTH_JWT_ISSUER: oidcIssuer,
+      AUTH_JWT_AUDIENCE: oidcAudience,
+    }
+
+    const response = await request('/api/auth/config', {}, env, false)
+    const body = (await response.json()) as {
+      provider: string
+      configured: boolean
+      issuer: string
+      issuerHost: string
+      jwksConfigured: boolean
+      audienceConfigured: boolean
+      supportedAlgorithms: string[]
+    }
+
+    expect(response.status).toBe(200)
+    expect(body).toMatchObject({
+      provider: 'clerk',
+      configured: true,
+      issuer: oidcIssuer,
+      issuerHost: 'issuer.splitclub.test',
+      jwksConfigured: true,
+      audienceConfigured: true,
+    })
+    expect(body.supportedAlgorithms).toContain('RS256')
+    expect(JSON.stringify(body)).not.toContain(jwksUrl)
+  })
+
+  test('links phone claims from production OIDC tokens into the authenticated member', async () => {
+    const env = {
+      ...createEnv(),
+      AUTH_PROVIDER_NAME: 'clerk',
+      AUTH_JWKS_URL: jwksUrl,
+      AUTH_JWT_ISSUER: oidcIssuer,
+      AUTH_JWT_AUDIENCE: oidcAudience,
+    }
+    const { token, jwks } = await createSignedBearer({
+      sub: 'oidc-kishan',
+      email: 'oidc@example.com',
+      phone_number: '+91 95555 55555',
+      name: 'OIDC Kishan',
+      picture: 'OK',
+    })
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url === jwksUrl) {
+        return new Response(JSON.stringify(jwks), {
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      return originalFetch(input, init)
+    }) as typeof fetch
+
+    try {
+      const response = await request('/api/auth/session', { headers: { Authorization: `Bearer ${token}` } }, env, false)
+      const body = (await response.json()) as { user: { id: string; email?: string; phone?: string; provider?: string } }
+
+      expect(response.status).toBe(200)
+      expect(body.user).toMatchObject({
+        id: 'oidc-kishan',
+        email: 'oidc@example.com',
+        phone: '+91 95555 55555',
+      })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 
   test('scopes session and group access to the authenticated member', async () => {
