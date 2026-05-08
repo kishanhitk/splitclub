@@ -168,6 +168,7 @@ function SplitClubApp() {
   const [authSession, setAuthSession] = useState(null)
   const [syncState, setSyncState] = useState('Offline ready')
   const [lastCloudSync, setLastCloudSync] = useState(null)
+  const [lastCloudPush, setLastCloudPush] = useState(null)
 
   useEffect(() => {
     loadLedger()
@@ -508,6 +509,34 @@ function SplitClubApp() {
     setSyncState('Signed out')
   }
 
+  const pushCloudJson = async (path, payload, label) => {
+    if (!cloudSyncReady) return
+    try {
+      const response = await fetch(`${cloudApiUrl}${path}`, {
+        method: 'POST',
+        headers: {
+          ...sessionHeaders(authSession),
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      })
+      if (!response.ok) {
+        throw new Error(`Worker returned ${response.status}`)
+      }
+      setLastCloudPush({ at: new Date().toISOString(), label, path, status: 'sent' })
+      setSyncState(`${label} synced to cloud`)
+    } catch (error) {
+      setLastCloudPush({
+        at: new Date().toISOString(),
+        label,
+        path,
+        status: 'failed',
+        message: error instanceof Error ? error.message : 'Cloud push failed',
+      })
+      setSyncState(`${label} saved locally; cloud push failed`)
+    }
+  }
+
   const addExpense = () => {
     const numericAmount = Number(amount)
     if (!description.trim() || Number.isNaN(numericAmount) || numericAmount <= 0) {
@@ -559,6 +588,7 @@ function SplitClubApp() {
     setSyncState('Saved locally')
     setActiveTab('activity')
     openExpense(expense)
+    pushCloudJson('/api/expenses', expense, 'Expense').catch(() => undefined)
   }
 
   const updateSelectedExpense = () => {
@@ -946,6 +976,18 @@ function SplitClubApp() {
     setLedger((current) => ({ ...current, expenses: [settlement, ...current.expenses] }))
     setSyncState('Settlement recorded')
     setSettlementReference('')
+    pushCloudJson('/api/settlements', {
+      groupId: settlement.groupId,
+      from,
+      to,
+      amount: settlementAmount,
+      currency,
+      date: settlement.date,
+      notes: settlement.notes,
+      paymentMethod: settlement.paymentMethod,
+      paymentReference: settlement.paymentReference,
+      paymentStatus: settlement.paymentStatus,
+    }, 'Settlement').catch(() => undefined)
   }
 
   const openPaymentHandoff = async (settlement) => {
@@ -1168,6 +1210,7 @@ function SplitClubApp() {
     cloudApiUrl,
     cloudSyncReady,
     lastCloudSync,
+    lastCloudPush,
     pullCloudSync,
     upcomingRecurring,
     cancelRecurring,
@@ -2441,8 +2484,10 @@ function ToolsScreen({ state }) {
               ['Worker API', state.cloudApiUrl || 'Not configured'],
               ['Session', state.authSession ? `${state.authSession.user.provider} · ${state.authSession.user.id}` : 'Signed out'],
               ['Last pull', state.lastCloudSync ? new Date(state.lastCloudSync.at).toLocaleString() : 'Never'],
+              ['Last push', state.lastCloudPush ? `${state.lastCloudPush.label} · ${state.lastCloudPush.status}` : 'Never'],
             ]}
           />
+          {state.lastCloudPush?.message ? <Muted>{state.lastCloudPush.message}</Muted> : null}
           {state.lastCloudSync ? (
             <FeatureList
               rows={[
