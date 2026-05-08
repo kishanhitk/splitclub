@@ -154,8 +154,11 @@ export const seedLedger: Ledger = {
       splits: [{ memberId: 'dev', value: 1200 }],
       category: 'Settlement',
       kind: 'settlement',
+      paymentMethod: 'upi',
+      paymentReference: 'UPI-demo-1200',
+      paymentStatus: 'confirmed',
       date: '2026-05-05',
-      notes: 'Cash settlement recorded',
+      notes: 'UPI settlement recorded outside SplitClub',
     },
   ],
 }

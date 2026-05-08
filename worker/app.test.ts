@@ -130,13 +130,23 @@ describe('SplitClub Worker API', () => {
           amount: 500,
           currency: 'INR',
           date: '2026-05-08',
+          paymentMethod: 'upi',
+          paymentReference: 'UPI-500',
+          paymentStatus: 'confirmed',
         }),
       },
       env,
     )
-    const settlementBody = (await settlementResponse.json()) as { settlement: { kind: string } }
+    const settlementBody = (await settlementResponse.json()) as {
+      settlement: { kind: string; paymentMethod?: string; paymentReference?: string; paymentStatus?: string }
+    }
     expect(settlementResponse.status).toBe(201)
     expect(settlementBody.settlement.kind).toBe('settlement')
+    expect(settlementBody.settlement).toMatchObject({
+      paymentMethod: 'upi',
+      paymentReference: 'UPI-500',
+      paymentStatus: 'confirmed',
+    })
   })
 
   test('creates friends, invites members, and updates permissions', async () => {
