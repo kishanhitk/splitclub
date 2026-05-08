@@ -49,6 +49,7 @@ SplitClub should cover the following Splitwise-style capabilities:
 - Group defaults/delete/restore pushes also include base revisions and get actionable 409 conflicts for stale cloud writes.
 - Core expense and settlement mutations can push to the Worker when API/auth are configured, while preserving local-first behavior offline.
 - Collaboration mutations now share the same local-first push path for friends, group invites, role changes, member removals, group defaults, and group delete/restore actions.
+- Friend profiles can be edited or removed from the mobile UI, with Worker routes returning member conflicts when the cloud copy changed first.
 - Group invites can now be accepted into memberships locally and through the Worker invite-token route.
 - Group invite delivery includes shareable invite links, web clipboard handoff, native sharing, and a public Worker invite landing page.
 - Android/web invite links can now open the app shell, prefill the invite token, and accept through cloud or local invite state.
@@ -67,7 +68,7 @@ SplitClub should cover the following Splitwise-style capabilities:
 
 ## Next Tickets
 
-- Production Cloudflare resource provisioning, secret setup, and remaining push-side conflict coverage for friend mutations.
+- Production Cloudflare resource provisioning and secret setup.
 - Richer receipt-to-expense review affordances.
 - Native push or email delivery for recurring due bill notifications.
 - Store-track Android release packaging with Play App Signing or an equivalent distribution channel.

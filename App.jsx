@@ -174,6 +174,10 @@ function SplitClubApp() {
   const [identityStatus, setIdentityStatus] = useState('Invite identity ready')
   const [friendName, setFriendName] = useState('Rhea')
   const [friendEmail, setFriendEmail] = useState('rhea@example.com')
+  const [selectedFriendId, setSelectedFriendId] = useState(null)
+  const [editFriendName, setEditFriendName] = useState('')
+  const [editFriendContact, setEditFriendContact] = useState('')
+  const [editFriendPayment, setEditFriendPayment] = useState('upi')
   const [inviteEmail, setInviteEmail] = useState('rhea@example.com')
   const [inviteRole, setInviteRole] = useState('member')
   const [inviteTokenInput, setInviteTokenInput] = useState('')
@@ -1220,6 +1224,67 @@ function SplitClubApp() {
     pushCloudJson('/api/friends', friend, 'Friend').catch(() => undefined)
   }
 
+  const openFriendProfile = (friend) => {
+    setSelectedFriendId(friend.id)
+    setEditFriendName(friend.name ?? '')
+    setEditFriendContact(friend.email ?? friend.phone ?? '')
+    setEditFriendPayment(friend.preferredPayment ?? 'cash')
+  }
+
+  const saveFriendProfile = () => {
+    const friend = ledger.members.find((member) => member.id === selectedFriendId)
+    if (!friend) return
+    const name = editFriendName.trim()
+    const contact = editFriendContact.trim()
+    if (!name) {
+      Alert.alert('Friend name required', 'Add a name before saving this friend.')
+      return
+    }
+    const isEmail = contact.includes('@')
+    const updatedAt = new Date().toISOString()
+    const updated = {
+      ...friend,
+      name,
+      email: isEmail ? contact.toLowerCase() : undefined,
+      phone: !isEmail && contact ? contact : undefined,
+      avatar: friend.avatar ?? name.slice(0, 2).toUpperCase(),
+      preferredPayment: editFriendPayment,
+      updatedAt,
+    }
+    const baseRevision = memberRevision(friend)
+    setLedger((current) => ({
+      ...current,
+      members: current.members.map((member) => (member.id === friend.id ? updated : member)),
+    }))
+    setSyncState('Friend updated')
+    pushCloudJson(`/api/friends/${friend.id}`, {
+      name: updated.name,
+      email: updated.email,
+      phone: updated.phone,
+      avatar: updated.avatar,
+      preferredPayment: updated.preferredPayment,
+    }, 'Friend profile', 'PUT', { baseRevision }).catch(() => undefined)
+  }
+
+  const removeFriendProfile = () => {
+    const friend = ledger.members.find((member) => member.id === selectedFriendId)
+    if (!friend || friend.id === activeUser.id) return
+    const balance = friendBalanceSummaries.find((summary) => summary.friendId === friend.id)
+    if (balance && Math.abs(balance.amount) >= 0.01) {
+      setSyncState(`Settle ${friend.name} before removing`)
+      Alert.alert('Open balance', 'Settle this friend before removing them.')
+      return
+    }
+    const baseRevision = memberRevision(friend)
+    setLedger((current) => ({
+      ...current,
+      members: current.members.filter((member) => member.id !== friend.id),
+    }))
+    setSelectedFriendId(null)
+    setSyncState('Friend removed')
+    pushCloudJson(`/api/friends/${friend.id}`, undefined, 'Friend removal', 'DELETE', { baseRevision }).catch(() => undefined)
+  }
+
   const createInvite = () => {
     if (!selectedGroupId || !inviteEmail.trim()) {
       Alert.alert('Invite needs a group and email', 'Choose a group and add an email.')
@@ -1857,7 +1922,18 @@ function SplitClubApp() {
     setFriendName,
     friendEmail,
     setFriendEmail,
+    selectedFriendId,
+    selectedFriend: ledger.members.find((member) => member.id === selectedFriendId) ?? null,
+    openFriendProfile,
+    editFriendName,
+    setEditFriendName,
+    editFriendContact,
+    setEditFriendContact,
+    editFriendPayment,
+    setEditFriendPayment,
     addFriend,
+    saveFriendProfile,
+    removeFriendProfile,
     inviteEmail,
     setInviteEmail,
     inviteRole,
@@ -2461,25 +2537,52 @@ function GroupsScreen({ state }) {
         <>
           <Panel title="Friends">
             <XStack fw="wrap" gap="$2">
-              {state.membersForGroup.map((member) => (
-                <YStack key={member.id} width="48.5%" minWidth={150} bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3">
-                  <XStack ai="center" gap="$2">
-                    <YStack ai="center" jc="center" h={34} w={34} br={999} bg="#f4f4f5">
-                      <SizableText color="#09090b" size="$2" fontWeight="900">
-                        {member.avatar}
-                      </SizableText>
-                    </YStack>
-                    <YStack flex={1}>
-                      <Text color="#09090b" fontSize={15} fontWeight="900">
-                        {member.name}
-                      </Text>
-                      <Muted>{member.preferredPayment}</Muted>
-                    </YStack>
-                  </XStack>
-                </YStack>
+              {state.membersForGroup.filter((member) => member.id !== state.activeUser.id).map((member) => (
+                <Button key={member.id} unstyled width="48.5%" minWidth={150} onPress={() => state.openFriendProfile(member)}>
+                  <YStack bg={state.selectedFriendId === member.id ? '#f4f4f5' : '#ffffff'} borderWidth={1} borderColor={state.selectedFriendId === member.id ? '#09090b' : '#e4e4e7'} br="$2" p="$3">
+                    <XStack ai="center" gap="$2">
+                      <YStack ai="center" jc="center" h={34} w={34} br={999} bg="#f4f4f5">
+                        <SizableText color="#09090b" size="$2" fontWeight="900">
+                          {member.avatar}
+                        </SizableText>
+                      </YStack>
+                      <YStack flex={1}>
+                        <Text color="#09090b" fontSize={15} fontWeight="900">
+                          {member.name}
+                        </Text>
+                        <Muted>{member.preferredPayment}</Muted>
+                      </YStack>
+                    </XStack>
+                  </YStack>
+                </Button>
               ))}
+              {state.membersForGroup.filter((member) => member.id !== state.activeUser.id).length === 0 ? <Muted>No friends in this view yet.</Muted> : null}
             </XStack>
           </Panel>
+
+          {state.selectedFriend ? (
+            <Panel title="Friend profile">
+              <YStack gap="$3">
+                <Field label="Name">
+                  <Input value={state.editFriendName} onChangeText={state.setEditFriendName} placeholder="Friend name" {...inputProps} />
+                </Field>
+                <Field label="Email or phone">
+                  <Input value={state.editFriendContact} onChangeText={state.setEditFriendContact} placeholder="friend@example.com" {...inputProps} />
+                </Field>
+                <Field label="Preferred payment">
+                  <XStack gap="$1.5" fw="wrap">
+                    {state.paymentMethods.map((method) => (
+                      <Chip key={method} label={method.toUpperCase()} active={state.editFriendPayment === method} onPress={() => state.setEditFriendPayment(method)} />
+                    ))}
+                  </XStack>
+                </Field>
+                <XStack gap="$2" fw="wrap">
+                  <SecondaryButton icon={<Pencil size={16} color="#09090b" />} label="Save friend" onPress={state.saveFriendProfile} />
+                  <SecondaryButton icon={<Trash2 size={16} color="#09090b" />} label="Remove" onPress={state.removeFriendProfile} />
+                </XStack>
+              </YStack>
+            </Panel>
+          ) : null}
 
           <Panel title="Add friend">
             <YStack gap="$3">

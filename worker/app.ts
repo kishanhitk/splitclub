@@ -393,6 +393,37 @@ export function createApp() {
     return c.json({ friend }, 201)
   })
 
+  app.put('/api/friends/:id', async (c) => {
+    const store = getStore(c.env)
+    const member = currentMember(c.get('authMember'))
+    const ledger = scopeLedger(await store.getLedger(), member.id)
+    const friend = ledger.members.find((candidate) => candidate.id === c.req.param('id') && candidate.id !== member.id)
+    if (!friend) throw new AuthError('Friend is not visible to this user', 403)
+    const conflict = memberConflictResponse(c, friend)
+    if (conflict) return conflict
+    const payload = friendSchema.parse({ ...(await c.req.json()), id: friend.id })
+    const updated = await store.updateMember(friend.id, payload, member.id)
+    await c.env.SYNC_QUEUE?.send({ type: 'friend.updated', friendId: updated.id, createdAt: new Date().toISOString() })
+    return c.json({ friend: updated })
+  })
+
+  app.delete('/api/friends/:id', async (c) => {
+    const store = getStore(c.env)
+    const member = currentMember(c.get('authMember'))
+    const ledger = scopeLedger(await store.getLedger(), member.id)
+    const friend = ledger.members.find((candidate) => candidate.id === c.req.param('id') && candidate.id !== member.id)
+    if (!friend) throw new AuthError('Friend is not visible to this user', 403)
+    const conflict = memberConflictResponse(c, friend)
+    if (conflict) return conflict
+    const balance = calculateFriendBalanceSummaries(ledger, member.id, ledger.defaultCurrency).find((item) => item.friendId === friend.id)
+    if (balance && Math.abs(balance.amount) >= 0.01) {
+      return c.json({ error: 'friend_has_balance', message: 'Settle this friend before removing them.', balance }, 409)
+    }
+    await store.removeFriend(friend.id, member.id)
+    await c.env.SYNC_QUEUE?.send({ type: 'friend.removed', friendId: friend.id, createdAt: new Date().toISOString() })
+    return c.json({ ok: true })
+  })
+
   app.get('/api/groups', async (c) => {
     const store = getStore(c.env)
     const member = currentMember(c.get('authMember'))
