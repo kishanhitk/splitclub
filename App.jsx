@@ -891,6 +891,36 @@ function SplitClubApp() {
     }, 'Group invite').catch(() => undefined)
   }
 
+  const acceptInvite = (inviteId) => {
+    const invite = pendingInvites.find((candidate) => candidate.id === inviteId)
+    if (!invite || invite.status !== 'pending') return
+    const inviteEmail = invite.invitedEmail?.toLowerCase()
+    const invitePhone = invite.invitedPhone
+    const invitee = ledger.members.find((member) =>
+      (inviteEmail && member.email?.toLowerCase() === inviteEmail) || (invitePhone && member.phone === invitePhone),
+    ) ?? activeUser
+    setPendingInvites((invites) => invites.map((candidate) =>
+      candidate.id === invite.id ? { ...candidate, status: 'accepted', acceptedBy: invitee.id } : candidate,
+    ))
+    setLedger((current) => ({
+      ...current,
+      groups: current.groups.map((group) =>
+        group.id === invite.groupId && !group.memberIds.includes(invitee.id)
+          ? { ...group, memberIds: [...group.memberIds, invitee.id] }
+          : group,
+      ),
+    }))
+    setMembershipRoles((current) => ({
+      ...current,
+      [invite.groupId]: {
+        ...(current[invite.groupId] ?? {}),
+        [invitee.id]: invite.role,
+      },
+    }))
+    setSyncState('Invite accepted')
+    pushCloudJson(`/api/invites/${invite.token}/accept`, {}, 'Invite acceptance').catch(() => undefined)
+  }
+
   const setMemberRole = (memberId, role) => {
     if (!selectedGroupId) return
     setMembershipRoles((current) => ({
@@ -1229,6 +1259,7 @@ function SplitClubApp() {
     setInviteRole,
     pendingInvites,
     createInvite,
+    acceptInvite,
     membershipRoles,
     setMemberRole,
     removeMember,
@@ -1713,15 +1744,19 @@ function GroupsScreen({ state }) {
               </Field>
               <PrimaryButton icon={<Plus size={17} color="#ffffff" />} label="Create invite" onPress={state.createInvite} />
               {state.pendingInvites.map((invite) => (
-                <XStack key={invite.id} ai="center" jc="space-between" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
-                  <YStack>
+                <XStack key={invite.id} ai="center" jc="space-between" gap="$3" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
+                  <YStack flex={1}>
                     <Text color="#09090b" fontSize={14} fontWeight="900">
                       {invite.invitedEmail}
                     </Text>
                     <Muted>
-                      {invite.role} · {invite.status} · {invite.token}
+                      {invite.role} · {invite.status}
+                      {invite.acceptedBy ? ` by ${state.memberName(invite.acceptedBy)}` : ''} · {invite.token}
                     </Muted>
                   </YStack>
+                  {invite.status === 'pending' ? (
+                    <SecondaryButton icon={<Check size={16} color="#09090b" />} label="Accept" onPress={() => state.acceptInvite(invite.id)} />
+                  ) : null}
                 </XStack>
               ))}
               {state.pendingInvites.length === 0 ? <Muted>No pending invites.</Muted> : null}

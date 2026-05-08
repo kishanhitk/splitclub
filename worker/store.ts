@@ -74,6 +74,7 @@ export type LedgerStore = {
   restoreGroup(groupId: string, actorId?: string): Promise<Group>
   listGroupInvites(groupId: string): Promise<GroupInvite[]>
   createGroupInvite(input: GroupInviteInput): Promise<GroupInvite>
+  acceptGroupInvite(token: string, userId: string): Promise<{ invite: GroupInvite; membership: Membership }>
   updateMembership(input: MembershipInput): Promise<Membership>
   removeMembership(groupId: string, userId: string): Promise<void>
   listExpenses(filters?: { groupId?: string | null; q?: string }): Promise<Expense[]>
@@ -269,6 +270,16 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
       invites.unshift(invite)
       audit('group_invite', invite.id, 'created', invite)
       return structuredClone(invite)
+    },
+    async acceptGroupInvite(token, userId) {
+      const invite = invites.find((candidate) => candidate.token === token)
+      if (!invite) throw new Error('Invite not found')
+      if (invite.status !== 'pending') throw new Error('Invite is not pending')
+      invite.status = 'accepted'
+      invite.acceptedBy = userId
+      const membership = await this.updateMembership({ groupId: invite.groupId, userId, role: invite.role })
+      audit('group_invite', invite.id, 'accepted', invite, userId)
+      return { invite: structuredClone(invite), membership }
     },
     async updateMembership(input) {
       const group = ledger.groups.find((candidate) => candidate.id === input.groupId)
@@ -879,6 +890,44 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
         .run()
       await audit('group_invite', invite.id, 'created', invite)
       return invite
+    },
+    async acceptGroupInvite(token, userId) {
+      const row = await db
+        .prepare('SELECT id, group_id, invited_email, invited_phone, role, token, status, created_by, accepted_by, created_at FROM group_invites WHERE token = ?')
+        .bind(token)
+        .first<{
+          id: string
+          group_id: string
+          invited_email?: string
+          invited_phone?: string
+          role: GroupRole
+          token: string
+          status: GroupInvite['status']
+          created_by: string
+          accepted_by?: string
+          created_at: string
+        }>()
+      if (!row) throw new Error('Invite not found')
+      if (row.status !== 'pending') throw new Error('Invite is not pending')
+      await db
+        .prepare('UPDATE group_invites SET status = ?, accepted_by = ?, accepted_at = CURRENT_TIMESTAMP WHERE token = ?')
+        .bind('accepted', userId, token)
+        .run()
+      const membership = await this.updateMembership({ groupId: row.group_id, userId, role: row.role })
+      const invite: GroupInvite = {
+        id: row.id,
+        groupId: row.group_id,
+        invitedEmail: row.invited_email,
+        invitedPhone: row.invited_phone,
+        role: row.role,
+        token: row.token,
+        status: 'accepted',
+        createdBy: row.created_by,
+        acceptedBy: userId,
+        createdAt: row.created_at,
+      }
+      await audit('group_invite', invite.id, 'accepted', invite, userId)
+      return { invite, membership }
     },
     async updateMembership(input) {
       await db

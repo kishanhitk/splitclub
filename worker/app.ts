@@ -272,6 +272,21 @@ export function createApp() {
     return c.json({ invite }, 201)
   })
 
+  app.post('/api/invites/:token/accept', async (c) => {
+    const store = getStore(c.env)
+    const member = currentMember(c.get('authMember'))
+    try {
+      const result = await store.acceptGroupInvite(c.req.param('token'), member.id)
+      await c.env.SYNC_QUEUE?.send({ type: 'group_invite.accepted', inviteId: result.invite.id, groupId: result.invite.groupId, userId: member.id, createdAt: new Date().toISOString() })
+      return c.json(result)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Invite could not be accepted'
+      if (message.includes('not found')) return c.json({ error: 'invite_not_found', message }, 404)
+      if (message.includes('not pending')) return c.json({ error: 'invite_not_pending', message }, 409)
+      throw error
+    }
+  })
+
   app.put('/api/groups/:id/members/:userId', async (c) => {
     const store = getStore(c.env)
     await requireGroupAccess(store, currentMember(c.get('authMember')).id, c.req.param('id'))
