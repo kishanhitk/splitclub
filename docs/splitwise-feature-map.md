@@ -66,10 +66,10 @@ SplitClub should cover the following Splitwise-style capabilities:
 - GitHub CI verifies web/domain checks and Android debug APK builds for pull requests, then publishes installable debug APK artifacts.
 - A manual Android release workflow can build, zipalign, sign, verify, and upload signed APK artifacts when release keystore secrets are configured.
 - Recurring bills can be scheduled for reminders, loaded from the Worker, posted or skipped with server-visible history, advanced to their next due date, scanned by a daily Cloudflare scheduled handler, and delivered from Queue into scoped cloud notifications.
+- Production Cloudflare setup has a repeatable provisioning script for D1/R2/Queue/OIDC secrets, remote migrations, deploy, and smoke checks, plus deploy workflow preflight guardrails for required secrets and Wrangler resource placeholders.
 
 ## Next Tickets
 
-- Production Cloudflare resource provisioning and secret setup.
 - Richer receipt-to-expense review affordances.
 - Native push or email delivery for recurring due bill notifications.
 - Store-track Android release packaging with Play App Signing or an equivalent distribution channel.

@@ -50,6 +50,32 @@ wrangler queues create splitclub-sync
 
 Update `database_id` under `[[d1_databases]]` with the real D1 id returned by Cloudflare.
 
+For a guided production setup, run:
+
+```sh
+bun run cloudflare:provision
+```
+
+The script creates or confirms the D1 database, R2 receipt bucket, and Queue, refuses to deploy while `wrangler.toml` still contains the D1 placeholder, applies remote migrations, prompts for the required Worker OIDC secrets with `wrangler secret put`, deploys the Worker, and can smoke-check the deployed API when `SPLITCLUB_API_URL` is set.
+
+Optional overrides:
+
+```sh
+SPLITCLUB_WORKER_NAME=splitclub-api
+SPLITCLUB_D1_NAME=splitclub
+SPLITCLUB_R2_BUCKET=splitclub-receipts
+SPLITCLUB_QUEUE_NAME=splitclub-sync
+SPLITCLUB_API_URL=https://splitclub-api.<account-subdomain>.workers.dev
+```
+
+The deploy workflow also validates production readiness before touching remote migrations:
+
+- `CLOUDFLARE_ACCOUNT_ID` is present.
+- `CLOUDFLARE_API_TOKEN` is present.
+- `wrangler.toml` no longer contains `replace-with-cloudflare-d1-id`.
+
+If any of those are missing, the workflow fails before deploying or migrating data.
+
 ## App Configuration
 
 After deployment, set the app API URL to the Worker origin:
