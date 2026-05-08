@@ -54,7 +54,7 @@ Use `bun run android:dev` only when intentionally starting an Expo development s
 `.github/workflows/ci.yml` verifies pull requests and `main` pushes with:
 
 - Web/domain checks: Bun install, Expo dependency alignment, TypeScript, Bun tests, and Expo web export.
-- Android debug build: Node 24, Bun latest, Temurin Java 21, Android SDK setup, Expo dependency alignment, Expo Android prebuild with `--no-install`, and `./gradlew assembleDebug`.
+- Android debug build: Node 24, Bun latest, Temurin Java 21, Android SDK setup, Expo dependency alignment, Expo Android prebuild with `--no-install`, `./gradlew assembleDebug`, and an installable debug APK artifact named `splitclub-android-debug-apk`.
 
 Action releases verified on May 8, 2026:
 
@@ -63,6 +63,13 @@ Action releases verified on May 8, 2026:
 - `oven-sh/setup-bun@v2.2.0`
 - `actions/setup-java@v5.2.0`
 - `android-actions/setup-android@v4.0.1`
+- `actions/upload-artifact@v7.0.1`
+
+Download the `splitclub-android-debug-apk` artifact from a successful workflow run, unzip it if GitHub provides a compressed download, and install it on an attached Android device with:
+
+```sh
+adb install app-debug.apk
+```
 
 ## Current Local Result
 
