@@ -4,7 +4,7 @@ import * as DocumentPicker from 'expo-document-picker'
 import * as Notifications from 'expo-notifications'
 import * as WebBrowser from 'expo-web-browser'
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Platform, SafeAreaView } from 'react-native'
+import { Alert, Linking, Platform, SafeAreaView } from 'react-native'
 import {
   BarChart3,
   Bell,
@@ -37,6 +37,7 @@ import { Button, Input, ScrollView, SizableText, TamaguiProvider, Text, XStack, 
 import { seedLedger } from './src/data/seed'
 import {
   applyGroupDefaultSplits,
+  buildPaymentHandoff,
   calculateBalances,
   calculateDirectSettlements,
   calculateFriendBalanceSummaries,
@@ -947,6 +948,31 @@ function SplitClubApp() {
     setSettlementReference('')
   }
 
+  const openPaymentHandoff = async (settlement) => {
+    const recipientName = memberName(settlement.to)
+    const handoff = buildPaymentHandoff({
+      method: settlementMethod,
+      amount: settlement.amount,
+      currency: settlement.currency,
+      recipientName,
+      reference: settlementReference,
+    })
+
+    if (!handoff.available || !handoff.url) {
+      setSyncState(handoff.message)
+      Alert.alert(handoff.label, handoff.message)
+      return
+    }
+
+    try {
+      await Linking.openURL(handoff.url)
+      setSyncState(handoff.message)
+    } catch (error) {
+      setSyncState('Payment app unavailable')
+      Alert.alert('Payment app unavailable', error instanceof Error ? error.message : handoff.message)
+    }
+  }
+
   const pullCloudSync = async () => {
     if (!cloudApiUrl) {
       setSyncState('Cloud API not configured')
@@ -1166,6 +1192,7 @@ function SplitClubApp() {
     memberPreferredPayment,
     addExpense,
     addSettlement,
+    openPaymentHandoff,
     shareExport,
     shareBackup,
     restoreDemo,
@@ -2029,15 +2056,11 @@ function BalancesScreen({ state }) {
             </XStack>
           </Field>
           <Field label="Reference">
-            <Input value={state.settlementReference} onChangeText={state.setSettlementReference} placeholder="Optional transaction note" {...inputProps} />
+            <Input value={state.settlementReference} onChangeText={state.setSettlementReference} placeholder="Payment handle, account note, or transaction reference" {...inputProps} />
           </Field>
           {state.settlements.map((settlement) => (
-            <Button
-              key={`${settlement.from}-${settlement.to}-${settlement.amount}`}
-              unstyled
-              onPress={() => state.addSettlement(settlement.from, settlement.to, settlement.amount)}
-            >
-              <XStack ai="center" gap="$2" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
+            <YStack key={`${settlement.from}-${settlement.to}-${settlement.amount}`} gap="$3" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
+              <XStack ai="center" gap="$2">
                 <Check size={16} color="#09090b" />
                 <YStack flex={1}>
                   <SizableText color="#18181b" size="$3" fontWeight="800">
@@ -2049,7 +2072,11 @@ function BalancesScreen({ state }) {
                   {settlement.currency} {settlement.amount.toFixed(2)}
                 </SizableText>
               </XStack>
-            </Button>
+              <XStack gap="$2">
+                <SecondaryButton icon={<ChevronRight size={16} color="#09090b" />} label="Open payment" onPress={() => state.openPaymentHandoff(settlement)} />
+                <SecondaryButton icon={<Check size={16} color="#09090b" />} label="Record" onPress={() => state.addSettlement(settlement.from, settlement.to, settlement.amount)} />
+              </XStack>
+            </YStack>
           ))}
         </YStack>
       </Panel>
