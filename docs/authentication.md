@@ -27,9 +27,12 @@ Set these private Worker variables or secrets:
 AUTH_JWT_ISSUER=https://your-clerk-domain
 AUTH_JWT_AUDIENCE=splitclub-api
 AUTH_JWKS_URL=https://your-clerk-domain/.well-known/jwks.json
+AUTH_PROVIDER_NAME=clerk
 ```
 
-The Worker requires `Authorization: Bearer <token>` on every ledger route except `/api/health` and `/api/features`.
+The Worker requires `Authorization: Bearer <token>` on every ledger route except `/api/health`, `/api/features`, `/api/auth/config`, and public invite landing pages.
+
+`GET /api/auth/config` returns a secret-safe readiness summary for the app Account screen and production operators. It reports whether issuer, audience, and JWKS bindings are present, the issuer host, required claims, and supported signing algorithms without returning the JWKS URL or signing material.
 
 ## Data Scoping
 
@@ -37,7 +40,7 @@ On each request, the Worker:
 
 1. Verifies the JWT issuer, audience, lifetime, and signature.
 2. Maps the provider subject to a SplitClub user through `auth_identities`.
-3. Creates or links the local user record when needed.
+3. Creates or links the local user record when needed, including `email`, `name`, `picture`, and `phone_number` claims.
 4. Filters groups, expenses, balances, search, and sync payloads to the authenticated member.
 5. Verifies invite acceptance against the authenticated member email or phone before creating group membership.
 

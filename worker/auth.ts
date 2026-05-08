@@ -4,6 +4,7 @@ export type AuthBindings = {
   AUTH_JWKS_URL?: string
   AUTH_JWT_ISSUER?: string
   AUTH_JWT_AUDIENCE?: string
+  AUTH_PROVIDER_NAME?: string
   TEST_AUTH_TOKENS?: Record<string, AuthUser>
 }
 
@@ -22,6 +23,7 @@ type JwtPayload = {
   email?: string
   name?: string
   picture?: string
+  phone_number?: string
 }
 
 type Jwks = {
@@ -57,9 +59,24 @@ export async function authenticateRequest(request: Request, env: AuthBindings): 
   return {
     id: payload.sub,
     email: payload.email,
+    phone: payload.phone_number,
     name: payload.name,
     avatar: payload.picture,
-    provider: payload.iss ?? 'oidc',
+    provider: env.AUTH_PROVIDER_NAME ?? payload.iss ?? 'oidc',
+  }
+}
+
+export function getAuthProviderStatus(env: AuthBindings) {
+  const issuerHost = safeHostname(env.AUTH_JWT_ISSUER)
+  return {
+    provider: env.AUTH_PROVIDER_NAME ?? (issuerHost ? 'oidc' : 'unconfigured'),
+    configured: Boolean(env.AUTH_JWKS_URL && env.AUTH_JWT_ISSUER && env.AUTH_JWT_AUDIENCE),
+    issuer: env.AUTH_JWT_ISSUER ?? null,
+    issuerHost,
+    jwksConfigured: Boolean(env.AUTH_JWKS_URL),
+    audienceConfigured: Boolean(env.AUTH_JWT_AUDIENCE),
+    requiredClaims: ['sub', 'iss', 'aud'],
+    supportedAlgorithms: ['RS256', 'ES256'],
   }
 }
 
@@ -67,6 +84,15 @@ function readBearerToken(request: Request) {
   const header = request.headers.get('Authorization')
   const match = header?.match(/^Bearer\s+(.+)$/i)
   return match?.[1]
+}
+
+function safeHostname(value?: string) {
+  if (!value) return null
+  try {
+    return new URL(value).hostname
+  } catch {
+    return null
+  }
 }
 
 async function verifyJwt(token: string, config: { jwksUrl: string; issuer: string; audience: string }): Promise<JwtPayload> {

@@ -28,7 +28,7 @@ import {
   validateGroupDefaultSplits,
 } from '../src/domain/split'
 import { mapEventToNotification } from '../src/notifications/activity'
-import { AuthError, authenticateRequest, type AuthBindings } from './auth'
+import { AuthError, authenticateRequest, getAuthProviderStatus, type AuthBindings } from './auth'
 import { extractReceiptItems, type OcrBindings } from './ocr'
 import { createD1LedgerStore, type LedgerStore } from './store'
 
@@ -202,6 +202,8 @@ export function createApp() {
       ],
     }),
   )
+
+  app.get('/api/auth/config', (c) => c.json(getAuthProviderStatus(c.env)))
 
   app.get('/invite/:token', (c) => {
     const rawToken = c.req.param('token')
