@@ -25,6 +25,7 @@ import {
   Repeat,
   Search,
   Settings,
+  ShieldCheck,
   TrendingUp,
   Trash2,
   UserCircle,
@@ -45,6 +46,7 @@ import {
   spendingByCategory,
   spendingTrend,
   summarizeCurrencyExposure,
+  summarizeVisibility,
 } from './src/domain/split'
 import { parseReceiptText } from './src/domain/receipts'
 import { buildReminderNotifications } from './src/notifications/reminders'
@@ -85,6 +87,7 @@ const navItems = [
 const moreDestinations = [
   { id: 'account', label: 'Account', description: 'Profile, privacy, and sign-in', icon: UserCircle },
   { id: 'notifications', label: 'Notifications', description: 'Recent changes and unread activity', icon: Bell },
+  { id: 'privacy', label: 'Privacy', description: 'Visibility rules and private expenses', icon: ShieldCheck },
   { id: 'currencies', label: 'Currencies', description: 'Rates, defaults, and group conversion', icon: CircleDollarSign },
   { id: 'recurring', label: 'Recurring', description: 'Bills and native reminder scheduling', icon: Repeat },
   { id: 'analytics', label: 'Analytics', description: 'Category spend and monthly trends', icon: BarChart3 },
@@ -206,6 +209,10 @@ function SplitClubApp() {
     [ledger, readNotificationIds],
   )
   const unreadNotificationCount = accountNotifications.filter((notification) => !notification.read).length
+  const visibilitySummary = useMemo(
+    () => summarizeVisibility(ledger, activeUserId, selectedGroupId),
+    [ledger, activeUserId, selectedGroupId],
+  )
   const totalSpending = categoryTotals.reduce((sum, item) => sum + item.amount, 0)
   const currentTitle = selectedExpense
     ? 'Expense'
@@ -880,6 +887,7 @@ function SplitClubApp() {
     unreadNotificationCount,
     markNotificationRead,
     markAllNotificationsRead,
+    visibilitySummary,
     totalSpending,
     currencies,
     applyCurrencyConversion,
@@ -1513,6 +1521,7 @@ function MoreScreen({ state }) {
         </Panel>
         {state.moreSection === 'account' ? <AccountScreen state={state} /> : null}
         {state.moreSection === 'notifications' ? <NotificationsScreen state={state} /> : null}
+        {state.moreSection === 'privacy' ? <PrivacyScreen state={state} /> : null}
         {state.moreSection === 'currencies' ? <CurrenciesScreen state={state} /> : null}
         {state.moreSection === 'recurring' ? <RecurringBillsScreen state={state} /> : null}
         {state.moreSection === 'analytics' ? <AnalyticsScreen state={state} /> : null}
@@ -1652,6 +1661,62 @@ function NotificationsScreen({ state }) {
             </Button>
           ))}
           {state.accountNotifications.length === 0 ? <Muted>No recent activity yet.</Muted> : null}
+        </YStack>
+      </Panel>
+    </>
+  )
+}
+
+function PrivacyScreen({ state }) {
+  const summary = state.visibilitySummary
+  const groupViewers = summary.selectedGroupViewerIds.map(state.memberName).join(', ') || 'No group viewers'
+  const privateViewers = summary.privateViewerIds.map(state.memberName).join(', ') || state.memberName(state.activeUserId)
+  return (
+    <>
+      <Panel title="Visibility rules">
+        <FeatureList
+          rows={[
+            ['Group expenses', 'Everyone in the group can view amounts, splits, comments, edits, and attachments.'],
+            ['Non-group expenses', 'Only the payer and selected participants can view private expense details.'],
+            ['Balances', 'Group balances are shared inside the group. Private balances stay between involved people.'],
+          ]}
+        />
+      </Panel>
+
+      <Panel title="Current group">
+        <YStack gap="$3">
+          <XStack ai="center" jc="space-between" gap="$3">
+            <YStack flex={1}>
+              <Muted>{state.selectedGroup?.name ?? 'No group selected'}</Muted>
+              <Text color="#09090b" fontSize={28} lineHeight={34} fontWeight="900">
+                {summary.selectedGroupExpenseCount}
+              </Text>
+              <Muted>visible group expenses</Muted>
+            </YStack>
+            <ShieldCheck size={20} color="#09090b" />
+          </XStack>
+          <FeatureList rows={[
+            ['Can view', groupViewers],
+            ['Rule', 'Group members share the same group ledger.'],
+          ]} />
+        </YStack>
+      </Panel>
+
+      <Panel title="Private expenses">
+        <YStack gap="$3">
+          <XStack ai="center" jc="space-between" gap="$3">
+            <YStack flex={1}>
+              <Muted>Non-group expenses involving {state.memberName(state.activeUserId)}</Muted>
+              <Text color="#09090b" fontSize={28} lineHeight={34} fontWeight="900">
+                {summary.privateExpenseCount}
+              </Text>
+              <Muted>{summary.visibleExpenseCount} total expenses visible to this profile</Muted>
+            </YStack>
+          </XStack>
+          <FeatureList rows={[
+            ['Can view', privateViewers],
+            ['Rule', 'Private expenses never appear in a group ledger.'],
+          ]} />
         </YStack>
       </Panel>
     </>
