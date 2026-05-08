@@ -11,6 +11,7 @@ export type Member = {
   phone?: string
   avatar: string
   preferredPayment: 'cash' | 'upi' | 'venmo' | 'paypal' | 'bank'
+  updatedAt?: string
 }
 
 export type SplitShare = {

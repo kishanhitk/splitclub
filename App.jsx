@@ -719,7 +719,9 @@ function SplitClubApp() {
       phone: phone || undefined,
       avatar: activeUser.avatar ?? name.slice(0, 2).toUpperCase(),
       preferredPayment: profilePayment,
+      updatedAt: new Date().toISOString(),
     }
+    const baseRevision = memberRevision(activeUser)
     setLedger((current) => {
       const exists = current.members.some((member) => member.id === updatedMember.id)
       return {
@@ -754,7 +756,7 @@ function SplitClubApp() {
       phone: updatedMember.phone,
       avatar: updatedMember.avatar,
       preferredPayment: updatedMember.preferredPayment,
-    }, 'Account identity', 'PUT').catch(() => undefined)
+    }, 'Account identity', 'PUT', { baseRevision }).catch(() => undefined)
   }
 
   const addExpense = () => {
@@ -1550,6 +1552,8 @@ function SplitClubApp() {
   }
 
   const addSettlement = (from, to, settlementAmount) => {
+    const group = selectedGroupId ? ledger.groups.find((candidate) => candidate.id === selectedGroupId) : null
+    const baseRevision = groupRevision(group)
     const settlement = {
       id: `settlement-${Date.now()}`,
       groupId: selectedGroupId ?? null,
@@ -1582,7 +1586,7 @@ function SplitClubApp() {
       paymentMethod: settlement.paymentMethod,
       paymentReference: settlement.paymentReference,
       paymentStatus: settlement.paymentStatus,
-    }, 'Settlement').catch(() => undefined)
+    }, 'Settlement', 'POST', { baseRevision }).catch(() => undefined)
   }
 
   const openPaymentHandoff = async (settlement) => {
@@ -2206,6 +2210,10 @@ function replaceRecord(records, nextRecord) {
 
 function expenseRevision(expense) {
   return expense?.updatedAt ?? expense?.deletedAt ?? expense?.history?.[0]?.createdAt ?? expense?.date
+}
+
+function memberRevision(member) {
+  return member?.updatedAt ?? [member?.name, member?.email ?? '', member?.phone ?? '', member?.preferredPayment ?? 'cash'].join('|')
 }
 
 function groupRevision(group) {
