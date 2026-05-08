@@ -21,6 +21,7 @@
     "expo": "^55.0.23",
     "expo-auth-session": "~55.0.15",
     "expo-crypto": "~55.0.14",
+    "expo-notifications": "~55.0.22",
     "expo-status-bar": "^55.0.6",
     "expo-web-browser": "~55.0.15",
     "hono": "^4.12.18",
