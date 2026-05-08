@@ -38,6 +38,7 @@ import { seedLedger } from './src/data/seed'
 import {
   applyGroupDefaultSplits,
   calculateBalances,
+  calculateFriendBalanceSummaries,
   convertExpensesToCurrency,
   exportCsv,
   exportJsonBackup,
@@ -202,6 +203,10 @@ function SplitClubApp() {
     [ledger.expenses, selectedExpenseId],
   )
   const balances = useMemo(() => calculateBalances(ledger, selectedGroupId, currency), [ledger, selectedGroupId, currency])
+  const friendBalanceSummaries = useMemo(
+    () => calculateFriendBalanceSummaries(ledger, activeUserId, currency),
+    [ledger, activeUserId, currency],
+  )
   const settlements = useMemo(() => simplifyDebts(balances, currency), [balances, currency])
   const categoryTotals = useMemo(
     () => spendingByCategory(ledger, selectedGroupId, currency).slice(0, 5),
@@ -1054,6 +1059,7 @@ function SplitClubApp() {
     membersForGroup,
     visibleExpenses,
     balances,
+    friendBalanceSummaries,
     settlements,
     categoryTotals,
     trendTotals,
@@ -1818,6 +1824,48 @@ function AddExpenseScreen({ state }) {
 function BalancesScreen({ state }) {
   return (
     <>
+      <Panel title="Friend totals">
+        <YStack gap="$1">
+          <Muted>Across active groups and private expenses.</Muted>
+          {state.friendBalanceSummaries.length === 0 ? (
+            <YStack py="$3">
+              <Text color="#09090b" fontSize={15} fontWeight="900">
+                All settled
+              </Text>
+              <Muted>No friend-level balances are open.</Muted>
+            </YStack>
+          ) : (
+            state.friendBalanceSummaries.map((summary) => (
+              <YStack key={summary.friendId} py="$3" borderBottomWidth={1} borderColor="#f4f4f5" gap="$2">
+                <XStack ai="center" jc="space-between" gap="$3">
+                  <YStack flex={1}>
+                    <Text color="#09090b" fontSize={15} fontWeight="900">
+                      {state.memberName(summary.friendId)}
+                    </Text>
+                    <Muted>{summary.amount >= 0 ? 'owes you overall' : 'you owe overall'}</Muted>
+                  </YStack>
+                  <Text color="#09090b" fontSize={15} fontWeight="900">
+                    {summary.amount < 0 ? '-' : '+'}
+                    {summary.currency} {Math.abs(summary.amount).toFixed(2)}
+                  </Text>
+                </XStack>
+                <YStack gap="$1">
+                  {summary.breakdown.map((item) => (
+                    <XStack key={`${summary.friendId}-${item.scopeId ?? 'private'}`} ai="center" jc="space-between" gap="$3">
+                      <Muted>{item.scopeName}</Muted>
+                      <SizableText color="#52525b" size="$2" fontWeight="800">
+                        {item.amount < 0 ? '-' : '+'}
+                        {item.currency} {Math.abs(item.amount).toFixed(2)}
+                      </SizableText>
+                    </XStack>
+                  ))}
+                </YStack>
+              </YStack>
+            ))
+          )}
+        </YStack>
+      </Panel>
+
       <Panel title="Net balances">
         {state.balances.map((balance) => (
           <XStack key={balance.memberId} ai="center" jc="space-between" py="$2.5" borderBottomWidth={1} borderColor="#f4f4f5">

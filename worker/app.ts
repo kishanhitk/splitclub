@@ -16,7 +16,15 @@ import {
   settlementSchema,
 } from '../src/contracts/api'
 import type { Ledger, Member } from '../src/domain/split'
-import { calculateBalances, exportCsv, exportJsonBackup, roundMoney, simplifyDebts, validateGroupDefaultSplits } from '../src/domain/split'
+import {
+  calculateBalances,
+  calculateFriendBalanceSummaries,
+  exportCsv,
+  exportJsonBackup,
+  roundMoney,
+  simplifyDebts,
+  validateGroupDefaultSplits,
+} from '../src/domain/split'
 import { mapEventToNotification } from '../src/notifications/activity'
 import { AuthError, authenticateRequest, type AuthBindings } from './auth'
 import { extractReceiptItems, type OcrBindings } from './ocr'
@@ -133,6 +141,7 @@ export function createApp() {
       free: true,
       features: [
         'groups and friends',
+        'friend-level balances across groups and private expenses',
         'non-group expenses',
         'equal, exact, percent, share, and adjustment splits',
         'settlements and simplified debts',
@@ -173,6 +182,14 @@ export function createApp() {
     const member = currentMember(c.get('authMember'))
     const ledger = scopeLedger(await store.getLedger(), member.id)
     return c.json({ friends: ledger.members.filter((candidate) => candidate.id !== member.id) })
+  })
+
+  app.get('/api/friends/balances', async (c) => {
+    const store = getStore(c.env)
+    const member = currentMember(c.get('authMember'))
+    const ledger = scopeLedger(await store.getLedger(), member.id)
+    const currency = c.req.query('currency') ?? ledger.defaultCurrency
+    return c.json({ balances: calculateFriendBalanceSummaries(ledger, member.id, currency) })
   })
 
   app.post('/api/friends', async (c) => {

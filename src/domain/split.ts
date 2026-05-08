@@ -104,6 +104,20 @@ export type Settlement = {
   currency: string
 }
 
+export type FriendBalanceBreakdown = {
+  scopeId: string | null
+  scopeName: string
+  amount: number
+  currency: string
+}
+
+export type FriendBalanceSummary = {
+  friendId: string
+  amount: number
+  currency: string
+  breakdown: FriendBalanceBreakdown[]
+}
+
 export type UpcomingRecurringExpense = {
   sourceExpenseId: string
   description: string
@@ -337,6 +351,122 @@ export function calculateBalances(ledger: Ledger, groupId?: string | null, curre
     .map(([memberId, amount]) => ({ memberId, amount: roundMoney(amount) }))
     .filter((balance) => Math.abs(balance.amount) >= 0.01)
     .sort((a, b) => b.amount - a.amount)
+}
+
+const paymentMapForExpense = (expense: Expense, currency: string, rates: Record<string, number>) => {
+  const payments = new Map<string, number>()
+  const paymentShares = expense.payments?.length
+    ? expense.payments.map((payment) => ({
+        memberId: payment.memberId,
+        amount: convertAmount(payment.value, expense.currency, currency, rates),
+      }))
+    : [{ memberId: expense.paidBy, amount: convertAmount(expense.amount, expense.currency, currency, rates) }]
+
+  for (const payment of paymentShares) {
+    payments.set(payment.memberId, roundMoney((payments.get(payment.memberId) ?? 0) + payment.amount))
+  }
+  return payments
+}
+
+const owedMapForExpense = (expense: Expense) => {
+  const owed = new Map<string, number>()
+  for (const share of calculateOwedShares(expense)) {
+    owed.set(share.memberId, roundMoney((owed.get(share.memberId) ?? 0) + share.amount))
+  }
+  return owed
+}
+
+function addFriendBalance(
+  summaries: Map<string, FriendBalanceSummary>,
+  friendId: string,
+  scopeId: string | null,
+  scopeName: string,
+  amount: number,
+  currency: string,
+) {
+  const rounded = roundMoney(amount)
+  if (Math.abs(rounded) < 0.01) return
+
+  const summary = summaries.get(friendId) ?? { friendId, amount: 0, currency, breakdown: [] }
+  summary.amount = roundMoney(summary.amount + rounded)
+  const breakdown = summary.breakdown.find((item) => item.scopeId === scopeId)
+  if (breakdown) {
+    breakdown.amount = roundMoney(breakdown.amount + rounded)
+  } else {
+    summary.breakdown.push({ scopeId, scopeName, amount: rounded, currency })
+  }
+  summaries.set(friendId, summary)
+}
+
+export function calculateFriendBalanceSummaries(
+  ledger: Ledger,
+  viewerId: string,
+  currency = ledger.defaultCurrency,
+): FriendBalanceSummary[] {
+  const summaries = new Map<string, FriendBalanceSummary>()
+  const activeGroups = new Map(
+    ledger.groups
+      .filter((group) => !group.deletedAt && group.memberIds.includes(viewerId))
+      .map((group) => [group.id, group]),
+  )
+
+  for (const expense of ledger.expenses) {
+    if (expense.deletedAt) continue
+
+    const group = expense.groupId ? activeGroups.get(expense.groupId) : null
+    if (expense.groupId && !group) continue
+    if (!expense.groupId && !listExpenseViewers(ledger, expense).includes(viewerId)) continue
+
+    const scopeId = group?.id ?? null
+    const scopeName = group?.name ?? 'Private expenses'
+    const amount = convertAmount(expense.amount, expense.currency, currency, ledger.exchangeRates)
+
+    if (expense.kind === 'settlement') {
+      const from = expense.participants[0]
+      const to = expense.paidBy
+      if (from === viewerId && to !== viewerId) {
+        addFriendBalance(summaries, to, scopeId, scopeName, amount, currency)
+      } else if (to === viewerId && from !== viewerId) {
+        addFriendBalance(summaries, from, scopeId, scopeName, -amount, currency)
+      }
+      continue
+    }
+
+    const normalized = { ...expense, amount, currency }
+    const owedByMember = owedMapForExpense(normalized)
+    const paidByMember = paymentMapForExpense(expense, currency, ledger.exchangeRates)
+    const totalPaid = Array.from(paidByMember.values()).reduce((sum, paid) => sum + paid, 0)
+    if (totalPaid <= 0) continue
+
+    const viewerOwed = owedByMember.get(viewerId) ?? 0
+    const viewerPaid = paidByMember.get(viewerId) ?? 0
+    const involvedMembers = new Set([
+      expense.paidBy,
+      ...(expense.payments ?? []).map((payment) => payment.memberId),
+      ...expense.participants,
+    ])
+
+    for (const friendId of involvedMembers) {
+      if (friendId === viewerId) continue
+      const friendOwed = owedByMember.get(friendId) ?? 0
+      const friendPaid = paidByMember.get(friendId) ?? 0
+      const viewerCoveredFriend = friendOwed * (viewerPaid / totalPaid)
+      const friendCoveredViewer = viewerOwed * (friendPaid / totalPaid)
+      addFriendBalance(summaries, friendId, scopeId, scopeName, viewerCoveredFriend - friendCoveredViewer, currency)
+    }
+  }
+
+  return Array.from(summaries.values())
+    .map((summary) => ({
+      ...summary,
+      amount: roundMoney(summary.amount),
+      breakdown: summary.breakdown
+        .map((item) => ({ ...item, amount: roundMoney(item.amount) }))
+        .filter((item) => Math.abs(item.amount) >= 0.01)
+        .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount) || a.scopeName.localeCompare(b.scopeName)),
+    }))
+    .filter((summary) => Math.abs(summary.amount) >= 0.01)
+    .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount) || a.friendId.localeCompare(b.friendId))
 }
 
 export function listExpenseViewers(ledger: Ledger, expense: Expense): string[] {
