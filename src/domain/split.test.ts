@@ -3,6 +3,7 @@ import { seedLedger } from '../data/seed'
 import {
   applyGroupDefaultSplits,
   buildPaymentHandoff,
+  buildRecurringOccurrence,
   calculateBalances,
   calculateDirectSettlements,
   calculateFriendBalanceSummaries,
@@ -232,6 +233,28 @@ describe('split engine', () => {
       recurrence: 'monthly',
     })
     expect(listUpcomingRecurringExpenses(seedLedger, ['e3'])).toHaveLength(0)
+
+    const source = seedLedger.expenses.find((expense) => expense.id === 'e3')
+    expect(source).toBeDefined()
+    const occurrence = buildRecurringOccurrence(source!, {
+      id: 'e3-2026-06-03',
+      dueDate: '2026-06-03',
+      createdAt: '2026-05-08T00:00:00.000Z',
+      actorId: 'kishan',
+    })
+    expect(occurrence).toMatchObject({
+      id: 'e3-2026-06-03',
+      date: '2026-06-03',
+      recurrence: 'none',
+      reminderDays: undefined,
+      notes: expect.stringContaining('generated-from:e3'),
+    })
+    expect(occurrence.history).toHaveLength(1)
+    expect(occurrence.history?.at(-1)).toMatchObject({
+      expenseId: 'e3-2026-06-03',
+      memberId: 'kishan',
+      summary: 'Recurring bill posted from Monthly rent',
+    })
   })
 
   test('validates and applies group default split settings', () => {
