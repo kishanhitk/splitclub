@@ -157,13 +157,15 @@ export function createApp() {
   )
 
   app.get('/invite/:token', (c) => {
-    const token = c.req.param('token').replace(/[&<>"']/g, (char) => ({
+    const rawToken = c.req.param('token')
+    const token = rawToken.replace(/[&<>"']/g, (char) => ({
       '&': '&amp;',
       '<': '&lt;',
       '>': '&gt;',
       '"': '&quot;',
       "'": '&#39;',
     })[char] ?? char)
+    const deepLink = `splitclub://invite/${encodeURIComponent(rawToken)}`
     return c.html(`<!doctype html>
 <html lang="en">
   <head>
@@ -174,12 +176,16 @@ export function createApp() {
       body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; color: #09090b; background: #fafafa; }
       main { max-width: 560px; margin: 0 auto; padding: 48px 20px; }
       code { display: inline-block; padding: 8px 10px; border: 1px solid #e4e4e7; border-radius: 8px; background: #fff; }
+      a { display: inline-flex; margin: 18px 0 10px; min-height: 44px; align-items: center; justify-content: center; padding: 0 16px; border-radius: 8px; background: #09090b; color: #fff; text-decoration: none; font-weight: 700; }
+      p { color: #52525b; line-height: 1.5; }
     </style>
   </head>
   <body>
     <main>
       <h1>SplitClub invite</h1>
-      <p>Open SplitClub and accept this invite token.</p>
+      <p>Open SplitClub on Android or web to accept this invite.</p>
+      <a href="${deepLink}">Open SplitClub</a>
+      <p>Or paste this token inside Groups > Invites.</p>
       <code>${token}</code>
     </main>
   </body>

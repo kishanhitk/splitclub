@@ -46,11 +46,12 @@ SplitClub should cover the following Splitwise-style capabilities:
 - Collaboration mutations now share the same local-first push path for friends, group invites, role changes, member removals, group defaults, and group delete/restore actions.
 - Group invites can now be accepted into memberships locally and through the Worker invite-token route.
 - Group invite delivery includes shareable invite links, web clipboard handoff, native sharing, and a public Worker invite landing page.
+- Android/web invite links can now open the app shell, prefill the invite token, and accept through cloud or local invite state.
 - Expense lifecycle changes now push edits, comments, deletes, and restores to the Worker while remaining non-destructive offline.
 
 ## Next Tickets
 
-- Authentication hardening and verified invite link opening inside the app shell.
+- Authentication hardening and verified invite attribution.
 - Live Cloudflare deployment and richer conflict resolution controls.
 - Real receipt OCR pipeline and R2 uploads.
 - Full recurring bill scheduler and notifications.

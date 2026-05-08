@@ -58,6 +58,7 @@ import {
   validateGroupDefaultSplits,
 } from './src/domain/split'
 import { parseReceiptText } from './src/domain/receipts'
+import { normalizeInviteTokenInput, parseInviteTokenFromUrl } from './src/domain/invites'
 import { buildReminderNotifications } from './src/notifications/reminders'
 import { buildLedgerNotifications } from './src/notifications/activity'
 import { getAuthProviderConfig, hasRemoteAuthConfig } from './src/auth/provider'
@@ -162,6 +163,8 @@ function SplitClubApp() {
   const [friendEmail, setFriendEmail] = useState('rhea@example.com')
   const [inviteEmail, setInviteEmail] = useState('rhea@example.com')
   const [inviteRole, setInviteRole] = useState('member')
+  const [inviteTokenInput, setInviteTokenInput] = useState('')
+  const [inviteLinkStatus, setInviteLinkStatus] = useState('No invite link opened')
   const [pendingInvites, setPendingInvites] = useState([])
   const [groupSettingsOpen, setGroupSettingsOpen] = useState(false)
   const [groupView, setGroupView] = useState('overview')
@@ -331,6 +334,17 @@ function SplitClubApp() {
     createdAt: new Date().toISOString(),
   })
 
+  const routeToInviteToken = (token) => {
+    setInviteTokenInput(token)
+    setInviteLinkStatus(`Invite token ready: ${token}`)
+    setSelectedExpenseId(null)
+    setGroupSettingsOpen(false)
+    setGroupView('invites')
+    setMoreSection('index')
+    setActiveTab('groups')
+    setSyncState('Invite link opened')
+  }
+
   const applyGroupDefaultsToExpense = (group = selectedGroup) => {
     if (!group) {
       setSplitMode('equal')
@@ -347,6 +361,26 @@ function SplitClubApp() {
   useEffect(() => {
     applyGroupDefaultsToExpense(selectedGroup)
   }, [selectedGroupDefaultsKey])
+
+  useEffect(() => {
+    let mounted = true
+    const handleUrl = (url) => {
+      const token = parseInviteTokenFromUrl(url)
+      if (token) routeToInviteToken(token)
+    }
+
+    Linking.getInitialURL()
+      .then((url) => {
+        if (mounted && url) handleUrl(url)
+      })
+      .catch(() => undefined)
+
+    const subscription = Linking.addEventListener('url', ({ url }) => handleUrl(url))
+    return () => {
+      mounted = false
+      subscription.remove()
+    }
+  }, [])
 
   const setExpenseSplitMode = (mode) => {
     setSplitMode(mode)
@@ -929,19 +963,24 @@ function SplitClubApp() {
     }
   }
 
-  const acceptInvite = (inviteId) => {
-    const invite = pendingInvites.find((candidate) => candidate.id === inviteId)
-    if (!invite || invite.status !== 'pending') return
+  const applyAcceptedInvite = (invite, acceptedBy = activeUser.id) => {
+    if (!invite) return
     const inviteEmail = invite.invitedEmail?.toLowerCase()
     const invitePhone = invite.invitedPhone
     const invitee = ledger.members.find((member) =>
       (inviteEmail && member.email?.toLowerCase() === inviteEmail) || (invitePhone && member.phone === invitePhone),
-    ) ?? activeUser
-    setPendingInvites((invites) => invites.map((candidate) =>
-      candidate.id === invite.id ? { ...candidate, status: 'accepted', acceptedBy: invitee.id } : candidate,
-    ))
+    ) ?? ledger.members.find((member) => member.id === acceptedBy) ?? activeUser
+    const acceptedInvite = { ...invite, status: 'accepted', acceptedBy: invitee.id }
+    setPendingInvites((invites) => {
+      const existing = invites.find((candidate) => candidate.id === invite.id || candidate.token === invite.token)
+      if (!existing) return [acceptedInvite, ...invites]
+      return invites.map((candidate) =>
+        candidate.id === existing.id ? { ...candidate, ...acceptedInvite, id: candidate.id } : candidate,
+      )
+    })
     setLedger((current) => ({
       ...current,
+      members: current.members.some((member) => member.id === invitee.id) ? current.members : [invitee, ...current.members],
       groups: current.groups.map((group) =>
         group.id === invite.groupId && !group.memberIds.includes(invitee.id)
           ? { ...group, memberIds: [...group.memberIds, invitee.id] }
@@ -955,8 +994,56 @@ function SplitClubApp() {
         [invitee.id]: invite.role,
       },
     }))
+    if (invite.groupId) setSelectedGroupId(invite.groupId)
+    setGroupView('invites')
     setSyncState('Invite accepted')
+  }
+
+  const acceptInvite = (inviteId) => {
+    const invite = pendingInvites.find((candidate) => candidate.id === inviteId)
+    if (!invite || invite.status !== 'pending') return
+    applyAcceptedInvite(invite)
     pushCloudJson(`/api/invites/${invite.token}/accept`, {}, 'Invite acceptance').catch(() => undefined)
+  }
+
+  const acceptInviteToken = async () => {
+    const token = normalizeInviteTokenInput(inviteTokenInput)
+    if (!token) {
+      setInviteLinkStatus('Paste a valid invite token or link')
+      Alert.alert('Invite token needed', 'Paste a SplitClub invite link or token.')
+      return
+    }
+    setInviteTokenInput(token)
+    const localInvite = pendingInvites.find((candidate) => candidate.token === token || candidate.id === token)
+
+    if (cloudSyncReady) {
+      try {
+        const response = await fetch(`${cloudApiUrl}/api/invites/${encodeURIComponent(token)}/accept`, {
+          method: 'POST',
+          headers: sessionHeaders(authSession),
+        })
+        const body = await response.json().catch(() => ({}))
+        if (!response.ok) {
+          throw new Error(body.message ?? `Worker returned ${response.status}`)
+        }
+        applyAcceptedInvite(body.invite ?? localInvite, body.membership?.userId ?? activeUser.id)
+        setInviteLinkStatus('Invite accepted from cloud')
+        return
+      } catch (error) {
+        setInviteLinkStatus(error instanceof Error ? error.message : 'Cloud invite acceptance failed')
+      }
+    }
+
+    if (localInvite) {
+      applyAcceptedInvite(localInvite)
+      setInviteLinkStatus('Invite accepted locally')
+      pushCloudJson(`/api/invites/${token}/accept`, {}, 'Invite acceptance').catch(() => undefined)
+      return
+    }
+
+    setSyncState('Invite needs cloud sign-in')
+    setInviteLinkStatus('Invite not found locally. Sign in with cloud sync to accept it.')
+    Alert.alert('Invite not found locally', 'Sign in and configure the Worker API to accept invite links that are not already on this device.')
   }
 
   const setMemberRole = (memberId, role) => {
@@ -1295,10 +1382,14 @@ function SplitClubApp() {
     setInviteEmail,
     inviteRole,
     setInviteRole,
+    inviteTokenInput,
+    setInviteTokenInput,
+    inviteLinkStatus,
     pendingInvites,
     createInvite,
     shareInvite,
     acceptInvite,
+    acceptInviteToken,
     membershipRoles,
     setMemberRole,
     removeMember,
@@ -1759,16 +1850,20 @@ function GroupsScreen({ state }) {
       ) : null}
 
       {state.groupView === 'invites' && !state.selectedGroup ? (
-        <Panel title="Invites">
-          <FeatureList rows={[
-            ['Scope', 'Select a group to manage invites and roles.'],
-            ['Non-group expenses', 'Private one-off bills do not have group roles.'],
-          ]} />
-        </Panel>
+        <>
+          <InviteLinkPanel state={state} />
+          <Panel title="Invites">
+            <FeatureList rows={[
+              ['Scope', 'Select a group to manage invites and roles.'],
+              ['Non-group expenses', 'Private one-off bills do not have group roles.'],
+            ]} />
+          </Panel>
+        </>
       ) : null}
 
       {state.groupView === 'invites' && state.selectedGroup ? (
         <YStack gap="$3">
+          <InviteLinkPanel state={state} />
           <Panel title="Invites">
             <YStack gap="$3">
               <Field label="Invite email">
@@ -1843,6 +1938,28 @@ function GroupsScreen({ state }) {
         </YStack>
       ) : null}
     </>
+  )
+}
+
+function InviteLinkPanel({ state }) {
+  return (
+    <Panel title="Open invite link">
+      <YStack gap="$3">
+        <Field label="Invite token or link">
+          <Input
+            value={state.inviteTokenInput}
+            onChangeText={state.setInviteTokenInput}
+            placeholder="splitclub://invite/join_..."
+            autoCapitalize="none"
+            {...inputProps}
+          />
+        </Field>
+        <XStack gap="$2" fw="wrap">
+          <SecondaryButton icon={<Check size={16} color="#09090b" />} label="Accept invite" onPress={state.acceptInviteToken} />
+        </XStack>
+        <Muted>{state.inviteLinkStatus}</Muted>
+      </YStack>
+    </Panel>
   )
 }
 
