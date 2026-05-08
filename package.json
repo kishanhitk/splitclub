@@ -1,0 +1,37 @@
+{
+  "name": "splitclub",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "worker:dev": "wrangler dev worker/index.ts",
+    "worker:deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@expo/metro-runtime": "~6.1.2",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "expo": "~54.0.33",
+    "expo-status-bar": "~3.0.9",
+    "hono": "^4.12.18",
+    "lucide-react-native": "^1.14.0",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "react-native": "0.81.5",
+    "react-native-svg": "15.12.1",
+    "react-native-web": "^0.21.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260508.1",
+    "@types/bun": "^1.3.13",
+    "@types/react": "~19.1.0",
+    "typescript": "~5.9.2",
+    "wrangler": "^4.90.0"
+  },
+  "private": true
+}
