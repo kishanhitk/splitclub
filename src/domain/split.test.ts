@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { seedLedger } from '../data/seed'
 import {
   applyGroupDefaultSplits,
+  buildPaymentHandoff,
   calculateBalances,
   calculateDirectSettlements,
   calculateFriendBalanceSummaries,
@@ -95,6 +96,38 @@ describe('split engine', () => {
     expect(settlements).toContainEqual({ from: 'mia', to: 'kishan', amount: 6000, currency: 'INR' })
     expect(settlements).toContainEqual({ from: 'anya', to: 'kishan', amount: 4300, currency: 'INR' })
     expect(settlements).toContainEqual({ from: 'dev', to: 'anya', amount: 840, currency: 'INR' })
+  })
+
+  test('builds payment handoff links and fallback instructions', () => {
+    expect(buildPaymentHandoff({
+      method: 'upi',
+      amount: 500,
+      currency: 'INR',
+      recipientName: 'Kishan',
+      reference: 'kishan@upi',
+    })).toMatchObject({
+      available: true,
+      label: 'Open UPI',
+      url: 'upi://pay?pa=kishan%40upi&pn=Kishan&am=500.00&cu=INR&tn=SplitClub+settlement',
+    })
+
+    expect(buildPaymentHandoff({
+      method: 'venmo',
+      amount: 12.5,
+      currency: 'USD',
+      recipientName: 'Mia',
+      reference: '@mia',
+    }).url).toBe('venmo://paycharge?txn=pay&recipients=mia&amount=12.50&note=SplitClub+settlement')
+
+    expect(buildPaymentHandoff({
+      method: 'bank',
+      amount: 1200,
+      currency: 'INR',
+      recipientName: 'Anya',
+    })).toMatchObject({
+      available: false,
+      message: 'Add an account reference before starting a bank transfer.',
+    })
   })
 
   test('summarizes friend balances across groups and private expenses', () => {

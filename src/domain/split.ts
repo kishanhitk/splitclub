@@ -104,6 +104,14 @@ export type Settlement = {
   currency: string
 }
 
+export type PaymentHandoff = {
+  method: PaymentMethod
+  available: boolean
+  label: string
+  url?: string
+  message: string
+}
+
 export type FriendBalanceBreakdown = {
   scopeId: string | null
   scopeName: string
@@ -274,6 +282,90 @@ export function calculateReceiptItemSplits(
   }
 
   return participantIds.map((memberId) => ({ memberId, value: roundMoney(totals.get(memberId) ?? 0) }))
+}
+
+export function buildPaymentHandoff(input: {
+  method: PaymentMethod
+  amount: number
+  currency: string
+  recipientName: string
+  reference?: string
+  note?: string
+}): PaymentHandoff {
+  const reference = input.reference?.trim()
+  const amount = roundMoney(input.amount).toFixed(2)
+  const note = input.note ?? 'SplitClub settlement'
+
+  if (input.method === 'cash') {
+    return {
+      method: input.method,
+      available: false,
+      label: 'Cash',
+      message: `Record ${input.currency} ${amount} after paying ${input.recipientName} in cash.`,
+    }
+  }
+
+  if (input.method === 'bank') {
+    return {
+      method: input.method,
+      available: false,
+      label: 'Bank transfer',
+      message: reference
+        ? `Use bank reference ${reference} for ${input.recipientName}.`
+        : 'Add an account reference before starting a bank transfer.',
+    }
+  }
+
+  if (!reference) {
+    return {
+      method: input.method,
+      available: false,
+      label: input.method.toUpperCase(),
+      message: `Add a ${input.method} handle or reference first.`,
+    }
+  }
+
+  if (input.method === 'upi') {
+    const params = new URLSearchParams({
+      pa: reference,
+      pn: input.recipientName,
+      am: amount,
+      cu: input.currency,
+      tn: note,
+    })
+    return {
+      method: input.method,
+      available: true,
+      label: 'Open UPI',
+      url: `upi://pay?${params.toString()}`,
+      message: `Open UPI to pay ${input.recipientName}.`,
+    }
+  }
+
+  if (input.method === 'venmo') {
+    const params = new URLSearchParams({
+      txn: 'pay',
+      recipients: reference.replace(/^@/, ''),
+      amount,
+      note,
+    })
+    return {
+      method: input.method,
+      available: true,
+      label: 'Open Venmo',
+      url: `venmo://paycharge?${params.toString()}`,
+      message: `Open Venmo to pay ${input.recipientName}.`,
+    }
+  }
+
+  const handle = reference.replace(/^@/, '')
+  return {
+    method: input.method,
+    available: true,
+    label: 'Open PayPal',
+    url: `https://www.paypal.com/paypalme/${encodeURIComponent(handle)}/${amount}${input.currency}`,
+    message: `Open PayPal to pay ${input.recipientName}.`,
+  }
 }
 
 export function convertAmount(amount: number, from: string, to: string, rates: Record<string, number>) {
