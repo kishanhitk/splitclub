@@ -35,6 +35,7 @@ const splitModes = ['equal', 'exact', 'percent', 'shares', 'adjustment']
 const currencies = ['INR', 'USD', 'EUR', 'GBP', 'SGD']
 const expenseKinds = ['expense', 'refund', 'reimbursement', 'debt']
 const categories = ['Transport', 'Food', 'Lodging', 'Rent', 'Groceries', 'Utilities', 'Tickets']
+const groupRoles = ['owner', 'admin', 'member', 'viewer']
 
 const navItems = [
   { id: 'activity', label: 'Activity', icon: ReceiptText },
@@ -73,6 +74,17 @@ function SplitClubApp() {
     { id: 'item-1', label: 'Cab fare', amount: 2400, assignedTo: ['kishan', 'anya', 'dev', 'mia'] },
     { id: 'item-2', label: 'Toll', amount: 1200, assignedTo: ['kishan', 'anya', 'dev', 'mia'] },
   ])
+  const [activeUserId, setActiveUserId] = useState('kishan')
+  const [friendName, setFriendName] = useState('Rhea')
+  const [friendEmail, setFriendEmail] = useState('rhea@example.com')
+  const [inviteEmail, setInviteEmail] = useState('rhea@example.com')
+  const [inviteRole, setInviteRole] = useState('member')
+  const [pendingInvites, setPendingInvites] = useState([])
+  const [membershipRoles, setMembershipRoles] = useState({
+    goa: { kishan: 'owner', anya: 'member', dev: 'member', mia: 'viewer' },
+    flat: { kishan: 'owner', anya: 'admin', dev: 'member' },
+  })
+  const [privateBalances, setPrivateBalances] = useState(false)
   const [syncState, setSyncState] = useState('Offline ready')
 
   useEffect(() => {
@@ -107,6 +119,8 @@ function SplitClubApp() {
   const itemizedTotal = receiptItems.reduce((sum, item) => sum + Number(item.amount || 0), 0)
 
   const memberName = (memberId) => ledger.members.find((member) => member.id === memberId)?.name ?? 'Someone'
+  const activeUser = ledger.members.find((member) => member.id === activeUserId) ?? ledger.members[0]
+  const selectedRole = selectedGroupId ? membershipRoles[selectedGroupId]?.[activeUserId] ?? 'viewer' : 'member'
 
   const addExpense = () => {
     const numericAmount = Number(amount)
@@ -173,6 +187,64 @@ function SplitClubApp() {
     setReceiptItems((items) => items.filter((item) => item.id !== itemId))
   }
 
+  const addFriend = () => {
+    if (!friendName.trim()) {
+      Alert.alert('Friend name required', 'Add a name before saving a friend.')
+      return
+    }
+    const friend = {
+      id: `${friendName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now()}`,
+      name: friendName.trim(),
+      email: friendEmail.trim() || undefined,
+      avatar: friendName.trim().slice(0, 2).toUpperCase(),
+      preferredPayment: 'upi',
+    }
+    setLedger((current) => ({ ...current, members: [friend, ...current.members] }))
+    setSyncState('Friend added')
+  }
+
+  const createInvite = () => {
+    if (!selectedGroupId || !inviteEmail.trim()) {
+      Alert.alert('Invite needs a group and email', 'Choose a group and add an email.')
+      return
+    }
+    setPendingInvites((invites) => [
+      {
+        id: `invite-${Date.now()}`,
+        groupId: selectedGroupId,
+        invitedEmail: inviteEmail.trim(),
+        role: inviteRole,
+        status: 'pending',
+        token: `join_${Date.now()}`,
+      },
+      ...invites,
+    ])
+    setSyncState('Invite created')
+  }
+
+  const setMemberRole = (memberId, role) => {
+    if (!selectedGroupId) return
+    setMembershipRoles((current) => ({
+      ...current,
+      [selectedGroupId]: {
+        ...(current[selectedGroupId] ?? {}),
+        [memberId]: role,
+      },
+    }))
+    setSyncState('Permissions updated')
+  }
+
+  const removeMember = (memberId) => {
+    if (!selectedGroupId) return
+    setLedger((current) => ({
+      ...current,
+      groups: current.groups.map((group) =>
+        group.id === selectedGroupId ? { ...group, memberIds: group.memberIds.filter((id) => id !== memberId) } : group,
+      ),
+    }))
+    setSyncState('Member removed')
+  }
+
   const addSettlement = (from, to, settlementAmount) => {
     const settlement = {
       id: `settlement-${Date.now()}`,
@@ -210,6 +282,10 @@ function SplitClubApp() {
 
   const appState = {
     ledger,
+    activeUser,
+    activeUserId,
+    setActiveUserId,
+    selectedRole,
     selectedGroup,
     selectedGroupId,
     setSelectedGroupId,
@@ -246,6 +322,22 @@ function SplitClubApp() {
     itemizedTotal,
     addReceiptItem,
     removeReceiptItem,
+    friendName,
+    setFriendName,
+    friendEmail,
+    setFriendEmail,
+    addFriend,
+    inviteEmail,
+    setInviteEmail,
+    inviteRole,
+    setInviteRole,
+    pendingInvites,
+    createInvite,
+    membershipRoles,
+    setMemberRole,
+    removeMember,
+    privateBalances,
+    setPrivateBalances,
     syncState,
     membersForGroup,
     visibleExpenses,
@@ -436,6 +528,75 @@ function GroupsScreen({ state }) {
             </YStack>
           ))}
         </XStack>
+      </Panel>
+
+      <Panel title="Add friend">
+        <YStack gap="$3">
+          <Field label="Name">
+            <Input value={state.friendName} onChangeText={state.setFriendName} placeholder="Friend name" {...inputProps} />
+          </Field>
+          <Field label="Email or phone">
+            <Input value={state.friendEmail} onChangeText={state.setFriendEmail} placeholder="friend@example.com" {...inputProps} />
+          </Field>
+          <SecondaryButton icon={<Users size={16} color="#09090b" />} label="Save friend" onPress={state.addFriend} />
+        </YStack>
+      </Panel>
+
+      <Panel title="Invites and permissions">
+        <YStack gap="$3">
+          <Field label="Invite email">
+            <Input value={state.inviteEmail} onChangeText={state.setInviteEmail} placeholder="name@example.com" {...inputProps} />
+          </Field>
+          <Field label="Invite role">
+            <XStack gap="$1.5" fw="wrap">
+              {groupRoles.map((role) => (
+                <Chip key={role} label={role} active={state.inviteRole === role} onPress={() => state.setInviteRole(role)} />
+              ))}
+            </XStack>
+          </Field>
+          <PrimaryButton icon={<Plus size={17} color="#ffffff" />} label="Create invite" onPress={state.createInvite} />
+          {state.pendingInvites.map((invite) => (
+            <XStack key={invite.id} ai="center" jc="space-between" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
+              <YStack>
+                <Text color="#09090b" fontSize={14} fontWeight="900">
+                  {invite.invitedEmail}
+                </Text>
+                <Muted>
+                  {invite.role} · {invite.status} · {invite.token}
+                </Muted>
+              </YStack>
+            </XStack>
+          ))}
+        </YStack>
+      </Panel>
+
+      <Panel title="Member roles">
+        <YStack gap="$2">
+          {state.membersForGroup.map((member) => (
+            <YStack key={member.id} bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3" gap="$2">
+              <XStack jc="space-between" ai="center">
+                <Text color="#09090b" fontSize={15} fontWeight="900">
+                  {member.name}
+                </Text>
+                <Button unstyled onPress={() => state.removeMember(member.id)}>
+                  <SizableText color="#71717a" size="$2" fontWeight="900">
+                    Remove
+                  </SizableText>
+                </Button>
+              </XStack>
+              <XStack gap="$1.5" fw="wrap">
+                {groupRoles.map((role) => (
+                  <Chip
+                    key={role}
+                    label={role}
+                    active={(state.membershipRoles[state.selectedGroupId]?.[member.id] ?? 'member') === role}
+                    onPress={() => state.setMemberRole(member.id, role)}
+                  />
+                ))}
+              </XStack>
+            </YStack>
+          ))}
+        </YStack>
       </Panel>
     </>
   )
@@ -629,6 +790,41 @@ function BalancesScreen({ state }) {
 function SettingsScreen({ state }) {
   return (
     <>
+      <Panel title="Profile and privacy">
+        <YStack gap="$3">
+          <XStack ai="center" jc="space-between" gap="$3">
+            <YStack>
+              <Text color="#09090b" fontSize={16} fontWeight="900">
+                {state.activeUser.name}
+              </Text>
+              <Muted>
+                Signed in as {state.activeUser.email ?? state.activeUser.phone ?? state.activeUser.id} · {state.selectedRole}
+              </Muted>
+            </YStack>
+          </XStack>
+          <Field label="Switch profile">
+            <XStack gap="$1.5" fw="wrap">
+              {state.ledger.members.slice(0, 5).map((member) => (
+                <Chip key={member.id} label={member.name} active={state.activeUserId === member.id} onPress={() => state.setActiveUserId(member.id)} />
+              ))}
+            </XStack>
+          </Field>
+          <Button unstyled onPress={() => state.setPrivateBalances(!state.privateBalances)}>
+            <XStack ai="center" jc="space-between" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
+              <YStack>
+                <Text color="#09090b" fontSize={14} fontWeight="900">
+                  Private balances
+                </Text>
+                <Muted>{state.privateBalances ? 'Only show balances to involved members.' : 'Group members can see shared balances.'}</Muted>
+              </YStack>
+              <SizableText color="#09090b" size="$2" fontWeight="900">
+                {state.privateBalances ? 'On' : 'Off'}
+              </SizableText>
+            </XStack>
+          </Button>
+        </YStack>
+      </Panel>
+
       <Panel title="Spending totals">
         {state.categoryTotals.map((item) => (
           <XStack key={item.category} ai="center" gap="$2">

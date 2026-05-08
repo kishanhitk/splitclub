@@ -57,6 +57,29 @@ export const groupSchema = z.object({
   defaultSplits: z.array(splitShareSchema).default([]),
 })
 
+export const friendSchema = z.object({
+  id: z.string().min(1).optional(),
+  name: z.string().min(1),
+  email: z.string().email().optional(),
+  phone: z.string().min(3).optional(),
+  avatar: z.string().min(1).optional(),
+  preferredPayment: z.enum(['cash', 'upi', 'venmo', 'paypal', 'bank']).default('cash'),
+})
+
+export const groupInviteSchema = z.object({
+  groupId: z.string().min(1),
+  invitedEmail: z.string().email().optional(),
+  invitedPhone: z.string().min(3).optional(),
+  role: z.enum(['owner', 'admin', 'member', 'viewer']).default('member'),
+  createdBy: z.string().min(1).default('kishan'),
+})
+
+export const membershipSchema = z.object({
+  groupId: z.string().min(1),
+  userId: z.string().min(1),
+  role: z.enum(['owner', 'admin', 'member', 'viewer']).default('member'),
+})
+
 export const settlementSchema = z.object({
   id: z.string().min(1).optional(),
   groupId: z.string().min(1).nullable(),
@@ -76,5 +99,8 @@ export const searchSchema = z.object({
 
 export type MemberInput = z.infer<typeof memberSchema>
 export type GroupInput = z.infer<typeof groupSchema>
+export type FriendInput = z.infer<typeof friendSchema>
+export type GroupInviteInput = z.infer<typeof groupInviteSchema>
+export type MembershipInput = z.infer<typeof membershipSchema>
 export type ExpenseInput = z.infer<typeof expenseSchema>
 export type SettlementInput = z.infer<typeof settlementSchema>
