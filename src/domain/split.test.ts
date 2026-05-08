@@ -8,6 +8,7 @@ import {
   listUpcomingRecurringExpenses,
   searchExpenses,
   simplifyDebts,
+  spendingTrend,
 } from './split'
 
 describe('split engine', () => {
@@ -36,6 +37,14 @@ describe('split engine', () => {
     expect(searchExpenses(seedLedger, 'recurring')).toHaveLength(1)
     expect(searchExpenses(seedLedger, 'usd')).toHaveLength(1)
     expect(searchExpenses(seedLedger, 'food')).toHaveLength(1)
+    expect(searchExpenses(seedLedger, 'kishan')).toHaveLength(4)
+    expect(searchExpenses(seedLedger, '2026-05-03')).toHaveLength(1)
+    expect(searchExpenses(seedLedger, '60000')).toHaveLength(1)
+  })
+
+  test('builds spending trend by month', () => {
+    expect(spendingTrend(seedLedger, 'goa', 'INR')).toEqual([{ month: '2026-05', amount: 30800 }])
+    expect(spendingTrend(seedLedger, null, 'INR')[0].amount).toBe(1500)
   })
 
   test('generates upcoming recurring bills with reminder dates', () => {
