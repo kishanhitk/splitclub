@@ -158,6 +158,20 @@ export type SplitValidation = {
   message: string
 }
 
+export type LedgerMergeEntity = 'member' | 'group' | 'expense'
+export type LedgerMergeRecord = Member | Group | Expense
+
+export type LedgerMergeConflict = {
+  id: string
+  entity: LedgerMergeEntity
+  recordId: string
+  label: string
+  localTimestamp?: string
+  remoteTimestamp?: string
+  localRecord: LedgerMergeRecord
+  remoteRecord: LedgerMergeRecord
+}
+
 export type LedgerMergeSummary = {
   membersAdded: number
   groupsAdded: number
@@ -168,30 +182,52 @@ export type LedgerMergeSummary = {
   memberConflicts: number
   groupConflicts: number
   expenseConflicts: number
+  conflicts: LedgerMergeConflict[]
 }
 
 export const roundMoney = (amount: number) => Math.round((amount + Number.EPSILON) * 100) / 100
 
-function mergeById<T extends { id: string }>(localItems: T[], remoteItems: T[]) {
+function latestExpenseTimestamp(expense: Expense) {
+  return expense.history?.at(-1)?.createdAt ?? expense.deletedAt ?? expense.date
+}
+
+function mergeById<T extends LedgerMergeRecord>(
+  entity: LedgerMergeEntity,
+  localItems: T[],
+  remoteItems: T[],
+  labelFor: (item: T) => string,
+  timestampFor: (item: T) => string | undefined = () => undefined,
+) {
   const remoteIds = new Set(remoteItems.map((item) => item.id))
   const localById = new Map(localItems.map((item) => [item.id, item]))
   const preserved = localItems.filter((item) => !remoteIds.has(item.id))
-  const conflicts = remoteItems.filter((item) => {
+  const conflicts = remoteItems.flatMap((item) => {
     const local = localById.get(item.id)
-    return local !== undefined && JSON.stringify(local) !== JSON.stringify(item)
+    if (local === undefined || JSON.stringify(local) === JSON.stringify(item)) return []
+    return [{
+      id: `${entity}:${item.id}`,
+      entity,
+      recordId: item.id,
+      label: labelFor(item),
+      localTimestamp: timestampFor(local),
+      remoteTimestamp: timestampFor(item),
+      localRecord: local,
+      remoteRecord: item,
+    }]
   })
   return {
     items: [...remoteItems, ...preserved],
     added: remoteItems.filter((item) => !localById.has(item.id)).length,
     preserved: preserved.length,
-    conflicts: conflicts.length,
+    conflicts,
   }
 }
 
 export function mergeLedgers(localLedger: Ledger, remoteLedger: Ledger): { ledger: Ledger; summary: LedgerMergeSummary } {
-  const members = mergeById(localLedger.members, remoteLedger.members)
-  const groups = mergeById(localLedger.groups, remoteLedger.groups)
-  const expenses = mergeById(localLedger.expenses, remoteLedger.expenses)
+  const members = mergeById('member', localLedger.members, remoteLedger.members, (member) => member.name)
+  const groups = mergeById('group', localLedger.groups, remoteLedger.groups, (group) => group.name, (group) => group.deletedAt)
+  const expenses = mergeById('expense', localLedger.expenses, remoteLedger.expenses, (expense) => expense.description, latestExpenseTimestamp)
+  const conflicts = [...members.conflicts, ...groups.conflicts, ...expenses.conflicts]
 
   return {
     ledger: {
@@ -209,9 +245,10 @@ export function mergeLedgers(localLedger: Ledger, remoteLedger: Ledger): { ledge
       localMembersPreserved: members.preserved,
       localGroupsPreserved: groups.preserved,
       localExpensesPreserved: expenses.preserved,
-      memberConflicts: members.conflicts,
-      groupConflicts: groups.conflicts,
-      expenseConflicts: expenses.conflicts,
+      memberConflicts: members.conflicts.length,
+      groupConflicts: groups.conflicts.length,
+      expenseConflicts: expenses.conflicts.length,
+      conflicts,
     },
   }
 }
