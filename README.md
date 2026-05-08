@@ -30,6 +30,12 @@ Production auth uses Expo AuthSession on Android/web and Worker-side JWT verific
 
 See `docs/authentication.md` for the required app and Worker environment variables.
 
+## Receipts
+
+Receipt images and PDFs are selected with Expo DocumentPicker, uploaded to R2 through the Worker, and parsed into reviewable line items before saving an expense.
+
+See `docs/receipts.md` for the R2 metadata schema, OCR route, and Workers AI configuration.
+
 ## Current Scope
 
 The first foundation includes a working seeded app surface with dedicated Activity, Groups, Add, Balances, and Settings screens. It supports expense creation, equal/exact/percent/share/adjustment split controls, settlement suggestions, search, spending totals, currency switching, offline persistence, CSV export preparation, and documented feature parity targets.

@@ -1,4 +1,5 @@
 import type { Expense, Group, Ledger, Member } from '../src/domain/split'
+import type { ExtractedReceiptItem } from '../src/domain/receipts'
 import type {
   AuthUser,
   ExpenseInput,
@@ -41,6 +42,20 @@ export type AuditEvent = {
   createdAt: string
 }
 
+export type ReceiptRecord = {
+  id: string
+  expenseId?: string
+  ownerId: string
+  objectKey: string
+  fileName: string
+  contentType: string
+  sizeBytes: number
+  ocrStatus: 'pending' | 'complete'
+  ocrText?: string
+  extractedItems: ExtractedReceiptItem[]
+  createdAt: string
+}
+
 export type LedgerStore = {
   ensureAuthenticatedMember(input: AuthUser): Promise<Member>
   getLedger(): Promise<Ledger>
@@ -57,6 +72,8 @@ export type LedgerStore = {
   listExpenses(filters?: { groupId?: string | null; q?: string }): Promise<Expense[]>
   createExpense(input: ExpenseInput): Promise<Expense>
   recordSettlement(input: SettlementInput): Promise<Expense>
+  createReceipt(input: Omit<ReceiptRecord, 'createdAt'>): Promise<ReceiptRecord>
+  listReceipts(ownerId: string): Promise<ReceiptRecord[]>
   listAuditEvents(): Promise<AuditEvent[]>
 }
 
@@ -68,6 +85,7 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
   const auditEvents: AuditEvent[] = []
   const roles = new Map<string, GroupRole>()
   const invites: GroupInvite[] = []
+  const receipts: ReceiptRecord[] = []
 
   for (const group of ledger.groups) {
     group.memberIds.forEach((memberId, index) => roles.set(`${group.id}:${memberId}`, index === 0 ? 'owner' : 'member'))
@@ -233,6 +251,15 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
       audit('settlement', expense.id, 'recorded', input)
       return expense
     },
+    async createReceipt(input) {
+      const receipt = { ...input, createdAt: now() }
+      receipts.unshift(receipt)
+      audit('receipt', receipt.id, 'created', receipt)
+      return structuredClone(receipt)
+    },
+    async listReceipts(ownerId) {
+      return structuredClone(receipts.filter((receipt) => receipt.ownerId === ownerId))
+    },
     async listAuditEvents() {
       return structuredClone(auditEvents)
     },
@@ -273,6 +300,19 @@ type ExpenseRow = {
   attachment_name?: string
   recurrence?: Expense['recurrence']
   reminder_days?: number
+}
+
+type ReceiptRow = {
+  id: string
+  expense_id?: string
+  owner_user_id: string
+  object_key: string
+  file_name: string
+  content_type: string
+  size_bytes: number
+  ocr_status: ReceiptRecord['ocrStatus']
+  ocr_text?: string
+  created_at: string
 }
 
 const rowToMember = (row: UserRow): Member => ({
@@ -333,6 +373,31 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
       .prepare('INSERT INTO audit_events (id, entity_type, entity_id, action, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?)')
       .bind(makeId('audit'), entityType, entityId, action, JSON.stringify(payload), now())
       .run()
+  }
+
+  const toReceipt = async (row: ReceiptRow): Promise<ReceiptRecord> => {
+    const items = await db
+      .prepare('SELECT id, label, amount, assigned_to_json FROM receipt_extracted_items WHERE receipt_id = ? ORDER BY created_at ASC')
+      .bind(row.id)
+      .all<{ id: string; label: string; amount: number; assigned_to_json: string }>()
+    return {
+      id: row.id,
+      expenseId: row.expense_id,
+      ownerId: row.owner_user_id,
+      objectKey: row.object_key,
+      fileName: row.file_name,
+      contentType: row.content_type,
+      sizeBytes: row.size_bytes,
+      ocrStatus: row.ocr_status,
+      ocrText: row.ocr_text,
+      extractedItems: items.results.map((item) => ({
+        id: item.id,
+        label: item.label,
+        amount: item.amount,
+        assignedTo: JSON.parse(item.assigned_to_json) as string[],
+      })),
+      createdAt: row.created_at,
+    }
   }
 
   return {
@@ -615,6 +680,36 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
         .run()
       await audit('settlement', expense.id, 'recorded', input)
       return expense
+    },
+    async createReceipt(input) {
+      await db
+        .prepare(
+          'INSERT INTO receipts (id, expense_id, owner_user_id, object_key, file_name, content_type, size_bytes, ocr_status, ocr_text) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        )
+        .bind(input.id, input.expenseId, input.ownerId, input.objectKey, input.fileName, input.contentType, input.sizeBytes, input.ocrStatus, input.ocrText)
+        .run()
+      await Promise.all(
+        input.extractedItems.map((item, index) =>
+          db
+            .prepare('INSERT INTO receipt_extracted_items (id, receipt_id, label, amount, assigned_to_json) VALUES (?, ?, ?, ?, ?)')
+            .bind(item.id ?? makeId(`receipt_item_${index}`), input.id, item.label, item.amount, JSON.stringify(item.assignedTo))
+            .run(),
+        ),
+      )
+      await audit('receipt', input.id, 'created', input)
+      const row = await db
+        .prepare('SELECT id, expense_id, owner_user_id, object_key, file_name, content_type, size_bytes, ocr_status, ocr_text, created_at FROM receipts WHERE id = ?')
+        .bind(input.id)
+        .first<ReceiptRow>()
+      if (!row) throw new Error('Receipt was not stored')
+      return toReceipt(row)
+    },
+    async listReceipts(ownerId) {
+      const result = await db
+        .prepare('SELECT id, expense_id, owner_user_id, object_key, file_name, content_type, size_bytes, ocr_status, ocr_text, created_at FROM receipts WHERE owner_user_id = ? ORDER BY created_at DESC')
+        .bind(ownerId)
+        .all<ReceiptRow>()
+      return Promise.all(result.results.map(toReceipt))
     },
     async listAuditEvents() {
       const result = await db.prepare('SELECT id, actor_id, entity_type, entity_id, action, payload_json, created_at FROM audit_events ORDER BY created_at DESC').all<{

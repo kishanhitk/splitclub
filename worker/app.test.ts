@@ -4,11 +4,17 @@ import { createApp, type Bindings } from './app'
 import { createMemoryLedgerStore } from './store'
 
 const queueMessages: unknown[] = []
+const receiptObjects: Array<{ key: string; size: number; contentType?: string }> = []
 
 function createEnv(): Bindings {
   return {
     DB: {} as D1Database,
-    RECEIPTS: {} as R2Bucket,
+    RECEIPTS: {
+      put: async (key: string, value: ArrayBuffer, options?: { httpMetadata?: { contentType?: string } }) => {
+        receiptObjects.push({ key, size: value.byteLength, contentType: options?.httpMetadata?.contentType })
+        return null
+      },
+    } as unknown as R2Bucket,
     SYNC_QUEUE: {
       send: async (message: unknown) => {
         queueMessages.push(message)
@@ -172,6 +178,31 @@ describe('SplitClub Worker API', () => {
     const membershipBody = (await membershipResponse.json()) as { membership: { role: string } }
     expect(membershipResponse.status).toBe(200)
     expect(membershipBody.membership.role).toBe('viewer')
+  })
+
+  test('uploads a receipt to R2 and returns OCR line items for review', async () => {
+    const env = createEnv()
+    const form = new FormData()
+    form.set('file', new File(['receipt image bytes'], 'dinner.jpg', { type: 'image/jpeg' }))
+    form.set('expenseId', 'e2')
+    form.set('ocrText', 'Fish thali 520\nLime soda 160')
+    form.append('assignedTo', 'kishan')
+    form.append('assignedTo', 'anya')
+
+    const response = await request('/api/receipts', { method: 'POST', body: form }, env)
+    const body = (await response.json()) as {
+      receipt: { objectKey: string; ocrStatus: string }
+      extractedItems: Array<{ id?: string; label: string; amount: number; assignedTo: string[] }>
+    }
+
+    expect(response.status).toBe(201)
+    expect(body.receipt.objectKey).toContain('receipts/kishan/receipt_')
+    expect(body.receipt.ocrStatus).toBe('complete')
+    expect(body.extractedItems).toEqual([
+      { id: 'ocr-1', label: 'Fish thali', amount: 520, assignedTo: ['kishan', 'anya'] },
+      { id: 'ocr-2', label: 'Lime soda', amount: 160, assignedTo: ['kishan', 'anya'] },
+    ])
+    expect(receiptObjects.at(-1)?.contentType).toBe('image/jpeg')
   })
 
   test('exposes sync payload and validation errors', async () => {
