@@ -4,8 +4,9 @@ import * as DocumentPicker from 'expo-document-picker'
 import * as Notifications from 'expo-notifications'
 import * as WebBrowser from 'expo-web-browser'
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Linking, Platform, SafeAreaView, Share } from 'react-native'
+import { Alert, Linking, Platform, SafeAreaView, Share, useWindowDimensions } from 'react-native'
 import {
+  ArrowLeft,
   BarChart3,
   Bell,
   Camera,
@@ -100,11 +101,11 @@ const addExpenseSteps = [
 ]
 
 const navItems = [
-  { id: 'activity', label: 'Activity', icon: ReceiptText },
-  { id: 'groups', label: 'Groups', icon: Users },
-  { id: 'add', label: 'Add', icon: Plus },
-  { id: 'balances', label: 'Balances', icon: WalletCards },
-  { id: 'settings', label: 'More', icon: Settings },
+  { id: 'activity', label: 'Activity', description: 'Ledger, search, comments', icon: ReceiptText },
+  { id: 'groups', label: 'Groups', description: 'Members, invites, defaults', icon: Users },
+  { id: 'add', label: 'Add', description: 'Create or itemize a bill', icon: Plus },
+  { id: 'balances', label: 'Balances', description: 'Settle up and simplify', icon: WalletCards },
+  { id: 'settings', label: 'More', description: 'Account, sync, exports', icon: Settings },
 ]
 
 const moreDestinations = [
@@ -190,6 +191,8 @@ function SplitClubApp() {
   const [syncState, setSyncState] = useState('Offline ready')
   const [lastCloudSync, setLastCloudSync] = useState(null)
   const [lastCloudPush, setLastCloudPush] = useState(null)
+  const { width } = useWindowDimensions()
+  const isWideLayout = width >= 920
 
   useEffect(() => {
     loadLedger()
@@ -263,13 +266,6 @@ function SplitClubApp() {
     [ledger, activeUserId, selectedGroupId],
   )
   const totalSpending = categoryTotals.reduce((sum, item) => sum + item.amount, 0)
-  const currentTitle = selectedExpense
-    ? 'Expense'
-    : groupSettingsOpen
-      ? 'Group settings'
-      : activeTab === 'settings'
-      ? moreDestinations.find((item) => item.id === moreSection)?.label ?? 'More'
-      : navItems.find((item) => item.id === activeTab)?.label ?? 'Activity'
   const expenseMemberIds = membersForGroup.map((member) => member.id)
   const splitPreview = useMemo(
     () => buildSplitPreview(Number(amount), splitMode, expenseMemberIds, splitValues),
@@ -1358,6 +1354,34 @@ function SplitClubApp() {
     setSyncState('Demo data restored')
   }
 
+  const currentRoute = buildRouteMeta({
+    activeTab,
+    moreSection,
+    selectedExpense,
+    selectedGroup,
+    groupSettingsOpen,
+  })
+  const hasRouteBack = Boolean(selectedExpense || groupSettingsOpen || (activeTab === 'settings' && moreSection !== 'index'))
+  const handleRouteBack = () => {
+    if (selectedExpense) {
+      closeExpense()
+      return
+    }
+    if (groupSettingsOpen) {
+      closeGroupSettings()
+      return
+    }
+    if (activeTab === 'settings' && moreSection !== 'index') {
+      setMoreSection('index')
+    }
+  }
+  const handlePrimaryRouteChange = (tab) => {
+    setSelectedExpenseId(null)
+    setGroupSettingsOpen(false)
+    setMoreSection('index')
+    setActiveTab(tab)
+  }
+
   const appState = {
     ledger,
     activeUser,
@@ -1535,46 +1559,91 @@ function SplitClubApp() {
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#fafafa' }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#f7f7f7' }}>
       <StatusBar style="dark" />
-      <YStack flex={1} bg="#fafafa">
-        <Header title={currentTitle} selectedGroup={selectedGroup} syncState={syncState} />
-        <YStack flex={1} maxWidth={820} width="100%" alignSelf="center">
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 140 }}>
-            <YStack gap="$3" px="$4" pt="$3">
-              {selectedExpense ? <ExpenseDetailScreen state={appState} /> : null}
-              {!selectedExpense && activeTab === 'activity' && <ActivityScreen state={appState} />}
-              {!selectedExpense && activeTab === 'groups' && (groupSettingsOpen ? <GroupSettingsScreen state={appState} /> : <GroupsScreen state={appState} />)}
-              {!selectedExpense && activeTab === 'add' && <AddExpenseScreen state={appState} />}
-              {!selectedExpense && activeTab === 'balances' && <BalancesScreen state={appState} />}
-              {!selectedExpense && activeTab === 'settings' && <MoreScreen state={appState} />}
-            </YStack>
-          </ScrollView>
+      <XStack flex={1} bg="#f7f7f7">
+        {isWideLayout ? (
+          <DesktopNav
+            activeTab={activeTab}
+            onChange={handlePrimaryRouteChange}
+            syncState={syncState}
+            unreadNotificationCount={unreadNotificationCount}
+          />
+        ) : null}
+        <YStack flex={1} minWidth={0}>
+          <Header
+            route={currentRoute}
+            selectedGroup={selectedGroup}
+            syncState={syncState}
+            onBack={hasRouteBack ? handleRouteBack : null}
+            isWideLayout={isWideLayout}
+          />
+          <YStack flex={1} width="100%">
+            <ScrollView
+              key={currentRoute.id}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{
+                paddingBottom: isWideLayout ? 36 : 116,
+                paddingTop: 18,
+                paddingHorizontal: isWideLayout ? 32 : 16,
+              }}
+            >
+              <YStack gap="$3" maxWidth={920} width="100%" alignSelf="center">
+                {selectedExpense ? <ExpenseDetailScreen state={appState} /> : null}
+                {!selectedExpense && activeTab === 'activity' && <ActivityScreen state={appState} />}
+                {!selectedExpense && activeTab === 'groups' && (groupSettingsOpen ? <GroupSettingsScreen state={appState} /> : <GroupsScreen state={appState} />)}
+                {!selectedExpense && activeTab === 'add' && <AddExpenseScreen state={appState} />}
+                {!selectedExpense && activeTab === 'balances' && <BalancesScreen state={appState} />}
+                {!selectedExpense && activeTab === 'settings' && <MoreScreen state={appState} />}
+              </YStack>
+            </ScrollView>
+          </YStack>
         </YStack>
-        <BottomNav activeTab={activeTab} onChange={(tab) => {
-          setSelectedExpenseId(null)
-          setGroupSettingsOpen(false)
-          setActiveTab(tab)
-        }} />
-      </YStack>
+        {!isWideLayout ? <BottomNav activeTab={activeTab} onChange={handlePrimaryRouteChange} /> : null}
+      </XStack>
     </SafeAreaView>
   )
 }
 
-function Header({ title, selectedGroup, syncState }) {
+function Header({ route, selectedGroup, syncState, onBack, isWideLayout }) {
   return (
-    <YStack bg="#ffffff" borderBottomWidth={1} borderColor="#e5e5e5" px="$4" pt="$3" pb="$3">
-      <YStack maxWidth={820} width="100%" alignSelf="center" gap="$2">
+    <YStack bg="#ffffff" borderBottomWidth={1} borderColor="#e5e5e5" px={isWideLayout ? '$5' : '$4'} pt="$3" pb="$3">
+      <YStack maxWidth={920} width="100%" alignSelf="center" gap="$2">
         <XStack ai="center" jc="space-between" gap="$3">
-          <YStack>
+          <XStack ai="center" gap="$3" flex={1} minWidth={0}>
+            {onBack ? (
+              <Button
+                unstyled
+                h={38}
+                w={38}
+                ai="center"
+                jc="center"
+                br="$2"
+                borderWidth={1}
+                borderColor="#e4e4e7"
+                bg="#ffffff"
+                onPress={onBack}
+                pressStyle={{ bg: '#f4f4f5', scale: 0.98 }}
+              >
+                <ArrowLeft size={18} color="#09090b" />
+              </Button>
+            ) : null}
+            <YStack flex={1} minWidth={0}>
+              <SizableText color="#71717a" size="$2" fontWeight="800" textTransform="uppercase">
+                {route.section}
+              </SizableText>
+              <Text color="#09090b" fontSize={isWideLayout ? 25 : 23} lineHeight={isWideLayout ? 30 : 28} fontWeight="900" numberOfLines={1}>
+                {route.title}
+              </Text>
+              <SizableText color="#71717a" size="$2" lineHeight={17} numberOfLines={isWideLayout ? 1 : 2}>
+                {route.description}
+              </SizableText>
+            </YStack>
+          </XStack>
+          <YStack ai="flex-end" display={isWideLayout ? 'flex' : 'none'}>
             <SizableText color="#71717a" size="$2" fontWeight="800" textTransform="uppercase">
-              SplitClub
+              Context
             </SizableText>
-            <Text color="#09090b" fontSize={26} lineHeight={31} fontWeight="900">
-              {title}
-            </Text>
-          </YStack>
-          <YStack ai="flex-end">
             <SizableText color="#09090b" size="$3" fontWeight="900">
               {selectedGroup?.name ?? 'Non-group'}
             </SizableText>
@@ -1586,6 +1655,72 @@ function Header({ title, selectedGroup, syncState }) {
       </YStack>
     </YStack>
   )
+}
+
+function buildRouteMeta({ activeTab, moreSection, selectedExpense, selectedGroup, groupSettingsOpen }) {
+  if (selectedExpense) {
+    return {
+      id: `expense-${selectedExpense.id}`,
+      section: 'Expense',
+      title: selectedExpense.description,
+      description: 'Edit details, comments, receipt items, delete/restore state, and audit history.',
+    }
+  }
+  if (groupSettingsOpen) {
+    return {
+      id: `group-settings-${selectedGroup?.id ?? 'none'}`,
+      section: 'Groups',
+      title: 'Group settings',
+      description: 'Default split rules, settle-up behavior, and group-level controls.',
+    }
+  }
+  if (activeTab === 'settings' && moreSection !== 'index') {
+    const destination = moreDestinations.find((item) => item.id === moreSection)
+    return {
+      id: `more-${moreSection}`,
+      section: 'More',
+      title: destination?.label ?? 'More',
+      description: destination?.description ?? 'Account, sync, exports, receipts, recurring bills, and app controls.',
+    }
+  }
+  if (activeTab === 'groups') {
+    return {
+      id: 'groups',
+      section: 'Workspace',
+      title: 'Groups',
+      description: 'Choose a group, manage members and invites, then tune defaults.',
+    }
+  }
+  if (activeTab === 'add') {
+    return {
+      id: 'add',
+      section: 'Create',
+      title: 'Add expense',
+      description: 'Move through basics, payers, split rules, receipt review, and final posting.',
+    }
+  }
+  if (activeTab === 'balances') {
+    return {
+      id: 'balances',
+      section: 'Settle',
+      title: 'Balances',
+      description: 'Review group and friend balances, simplify debt, and record payments.',
+    }
+  }
+  if (activeTab === 'settings') {
+    return {
+      id: 'more',
+      section: 'Workspace',
+      title: 'More',
+      description: 'Account, notification, privacy, currency, recurring, analytics, and tools.',
+    }
+  }
+  return {
+    id: 'activity',
+    section: 'Workspace',
+    title: 'Activity',
+    description: 'Search the ledger, open expenses, and review the latest spending changes.',
+  }
 }
 
 function buildSplitPreview(amount, splitMode, participants, splitValues = {}) {
@@ -1718,7 +1853,7 @@ function ActivityScreen({ state }) {
   return (
     <>
       <Panel>
-        <XStack ai="center" gap="$2" bg="#f4f4f5" br="$3" px="$3" h={44} borderWidth={1} borderColor="#e4e4e7">
+        <XStack ai="center" gap="$2" bg="#f4f4f5" br="$2" px="$3" h={44} borderWidth={1} borderColor="#e4e4e7">
           <Search size={17} color="#71717a" />
           <Input
             unstyled
@@ -1923,7 +2058,7 @@ function GroupsScreen({ state }) {
           <Panel title="Friends">
             <XStack fw="wrap" gap="$2">
               {state.membersForGroup.map((member) => (
-                <YStack key={member.id} width="48.5%" minWidth={150} bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
+                <YStack key={member.id} width="48.5%" minWidth={150} bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3">
                   <XStack ai="center" gap="$2">
                     <YStack ai="center" jc="center" h={34} w={34} br={999} bg="#f4f4f5">
                       <SizableText color="#09090b" size="$2" fontWeight="900">
@@ -1985,7 +2120,7 @@ function GroupsScreen({ state }) {
               </Field>
               <PrimaryButton icon={<Plus size={17} color="#ffffff" />} label="Create invite" onPress={state.createInvite} />
               {state.pendingInvites.map((invite) => (
-                <XStack key={invite.id} ai="center" jc="space-between" gap="$3" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
+                <XStack key={invite.id} ai="center" jc="space-between" gap="$3" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3">
                   <YStack flex={1}>
                     <Text color="#09090b" fontSize={14} fontWeight="900">
                       {invite.invitedEmail}
@@ -2010,7 +2145,7 @@ function GroupsScreen({ state }) {
           <Panel title="Member roles">
             <YStack gap="$2">
               {state.membersForGroup.map((member) => (
-                <YStack key={member.id} bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3" gap="$2">
+                <YStack key={member.id} bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3" gap="$2">
                   <XStack jc="space-between" ai="center">
                     <YStack flex={1}>
                       <Text color="#09090b" fontSize={15} fontWeight="900">
@@ -2109,7 +2244,7 @@ function GroupSettingsScreen({ state }) {
           {showValues ? (
             <YStack gap="$2">
               {state.membersForGroup.map((member) => (
-                <XStack key={member.id} ai="center" gap="$2" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
+                <XStack key={member.id} ai="center" gap="$2" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3">
                   <YStack flex={1}>
                     <Text color="#09090b" fontSize={14} fontWeight="900">
                       {member.name}
@@ -2130,7 +2265,7 @@ function GroupSettingsScreen({ state }) {
           ) : (
             <Muted>Equal defaults divide the bill across every current group member.</Muted>
           )}
-          <YStack bg={state.groupDefaultValidation.valid ? '#fafafa' : '#fff1f2'} borderWidth={1} borderColor={state.groupDefaultValidation.valid ? '#e4e4e7' : '#fecdd3'} br="$3" p="$3">
+          <YStack bg={state.groupDefaultValidation.valid ? '#fafafa' : '#fff1f2'} borderWidth={1} borderColor={state.groupDefaultValidation.valid ? '#e4e4e7' : '#fecdd3'} br="$2" p="$3">
             <SizableText color={state.groupDefaultValidation.valid ? '#09090b' : '#be123c'} size="$2" fontWeight="900">
               {state.groupDefaultValidation.message}
             </SizableText>
@@ -2229,7 +2364,7 @@ function AddExpenseScreen({ state }) {
               <YStack gap="$2">
                 <Label>Paid amounts</Label>
                 {state.membersForGroup.map((member) => (
-                  <XStack key={member.id} ai="center" gap="$2" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
+                  <XStack key={member.id} ai="center" gap="$2" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3">
                     <YStack flex={1}>
                       <Text color="#09090b" fontSize={14} fontWeight="900">
                         {member.name}
@@ -2248,7 +2383,7 @@ function AddExpenseScreen({ state }) {
                 ))}
               </YStack>
             ) : null}
-            <YStack bg={state.payerValidation.valid ? '#fafafa' : '#fff1f2'} borderWidth={1} borderColor={state.payerValidation.valid ? '#e4e4e7' : '#fecdd3'} br="$3" p="$3">
+            <YStack bg={state.payerValidation.valid ? '#fafafa' : '#fff1f2'} borderWidth={1} borderColor={state.payerValidation.valid ? '#e4e4e7' : '#fecdd3'} br="$2" p="$3">
               <SizableText color={state.payerValidation.valid ? '#09090b' : '#be123c'} size="$2" fontWeight="900">
                 {state.payerValidation.message}
               </SizableText>
@@ -2274,7 +2409,7 @@ function AddExpenseScreen({ state }) {
               <YStack gap="$2">
                 <Label>Split values</Label>
                 {state.membersForGroup.map((member) => (
-                  <XStack key={member.id} ai="center" gap="$2" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
+                  <XStack key={member.id} ai="center" gap="$2" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3">
                     <YStack flex={1}>
                       <Text color="#09090b" fontSize={14} fontWeight="900">
                         {member.name}
@@ -2293,7 +2428,7 @@ function AddExpenseScreen({ state }) {
                 ))}
               </YStack>
             ) : null}
-            <YStack bg="#f4f4f5" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3" gap="$2">
+            <YStack bg="#f4f4f5" borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3" gap="$2">
               <Label>Participants</Label>
               <XStack fw="wrap" gap="$2">
                 {state.membersForGroup.map((member) => (
@@ -2303,7 +2438,7 @@ function AddExpenseScreen({ state }) {
                 ))}
               </XStack>
             </YStack>
-            <YStack bg={state.splitPreview.valid ? '#fafafa' : '#fff1f2'} borderWidth={1} borderColor={state.splitPreview.valid ? '#e4e4e7' : '#fecdd3'} br="$3" p="$3" gap="$2">
+            <YStack bg={state.splitPreview.valid ? '#fafafa' : '#fff1f2'} borderWidth={1} borderColor={state.splitPreview.valid ? '#e4e4e7' : '#fecdd3'} br="$2" p="$3" gap="$2">
               <XStack ai="center" jc="space-between">
                 <Label>Split validation</Label>
                 <SizableText color={state.splitPreview.valid ? '#09090b' : '#be123c'} size="$2" fontWeight="900">
@@ -2329,7 +2464,7 @@ function AddExpenseScreen({ state }) {
           <Field label="Attachment">
             <Input value={state.attachmentName} onChangeText={state.setAttachmentName} placeholder="receipt.jpg" {...inputProps} />
           </Field>
-          <YStack bg="#f4f4f5" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3" gap="$2">
+          <YStack bg="#f4f4f5" borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3" gap="$2">
             <XStack ai="center" jc="space-between" gap="$3">
               <YStack flex={1}>
                 <Text color="#09090b" fontSize={14} fontWeight="900">
@@ -2344,7 +2479,7 @@ function AddExpenseScreen({ state }) {
               <SecondaryButton icon={<ReceiptText size={16} color="#09090b" />} label="Upload OCR" onPress={state.uploadReceipt} />
             </XStack>
           </YStack>
-          <YStack bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3" gap="$2">
+          <YStack bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3" gap="$2">
             <XStack ai="center" jc="space-between" gap="$3">
               <YStack flex={1}>
                 <Text color="#09090b" fontSize={14} fontWeight="900">
@@ -2389,7 +2524,7 @@ function AddExpenseScreen({ state }) {
           <SecondaryButton icon={<Plus size={16} color="#09090b" />} label="Add receipt item" onPress={state.addReceiptItem} />
           <YStack gap="$2">
             {state.receiptItems.map((item) => (
-              <YStack key={item.id} gap="$2" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
+              <YStack key={item.id} gap="$2" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3">
                 <XStack ai="center" gap="$2">
                   <YStack flex={1}>
                     <Text color="#09090b" fontSize={14} fontWeight="900">
@@ -2419,7 +2554,7 @@ function AddExpenseScreen({ state }) {
               </YStack>
             ))}
           </YStack>
-          <YStack bg="#f4f4f5" br="$3" p="$3" gap="$2">
+          <YStack bg="#f4f4f5" br="$2" p="$3" gap="$2">
             <XStack ai="center" jc="space-between">
               <SizableText color="#3f3f46" size="$2" fontWeight="900">
                 Itemized total
@@ -2544,7 +2679,7 @@ function BalancesScreen({ state }) {
             <Input value={state.settlementReference} onChangeText={state.setSettlementReference} placeholder="Payment handle, account note, or transaction reference" {...inputProps} />
           </Field>
           {state.settlements.map((settlement) => (
-            <YStack key={`${settlement.from}-${settlement.to}-${settlement.amount}`} gap="$3" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
+            <YStack key={`${settlement.from}-${settlement.to}-${settlement.amount}`} gap="$3" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3">
               <XStack ai="center" gap="$2">
                 <Check size={16} color="#09090b" />
                 <YStack flex={1}>
@@ -2595,7 +2730,7 @@ function MoreScreen({ state }) {
           const Icon = item.icon
           return (
             <Button key={item.id} unstyled onPress={() => state.setMoreSection(item.id)}>
-              <XStack ai="center" gap="$3" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
+              <XStack ai="center" gap="$3" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3">
                 <YStack ai="center" jc="center" h={38} w={38} br={999} bg="#f4f4f5">
                   <Icon size={18} color="#09090b" />
                 </YStack>
@@ -2631,7 +2766,7 @@ function AccountScreen({ state }) {
             </Muted>
           </YStack>
         </XStack>
-        <YStack bg="#f4f4f5" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3" gap="$2">
+        <YStack bg="#f4f4f5" borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3" gap="$2">
           <XStack ai="center" jc="space-between" gap="$3">
             <YStack flex={1}>
               <Text color="#09090b" fontSize={14} fontWeight="900">
@@ -2662,7 +2797,7 @@ function AccountScreen({ state }) {
           </XStack>
         </Field>
         <Button unstyled onPress={() => state.setPrivateBalances(!state.privateBalances)}>
-          <XStack ai="center" jc="space-between" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
+          <XStack ai="center" jc="space-between" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3">
             <YStack>
               <Text color="#09090b" fontSize={14} fontWeight="900">
                 Private balances
@@ -2946,7 +3081,7 @@ function ToolsScreen({ state }) {
         <Panel title="Sync conflicts">
           <YStack gap="$2">
             {state.lastCloudSync.conflicts.slice(0, 8).map((conflict) => (
-              <YStack key={conflict.id} bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3" gap="$2">
+              <YStack key={conflict.id} bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3" gap="$2">
                 <XStack ai="center" jc="space-between" gap="$3">
                   <YStack flex={1}>
                     <Text color="#09090b" fontSize={14} fontWeight="900">
@@ -2971,7 +3106,7 @@ function ToolsScreen({ state }) {
       <Panel title="Deleted groups">
         <YStack gap="$2">
           {state.deletedGroups.map((group) => (
-            <XStack key={group.id} ai="center" jc="space-between" gap="$3" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
+            <XStack key={group.id} ai="center" jc="space-between" gap="$3" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3">
               <YStack flex={1}>
                 <Text color="#09090b" fontSize={14} fontWeight="900">
                   {group.name}
@@ -2993,7 +3128,7 @@ function RecurringBillsScreen({ state }) {
     <>
       <Panel title="Recurring bills">
         <YStack gap="$2">
-          <YStack bg="#f4f4f5" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3" gap="$2">
+          <YStack bg="#f4f4f5" borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3" gap="$2">
             <XStack ai="center" jc="space-between" gap="$3">
               <YStack flex={1}>
                 <Text color="#09090b" fontSize={14} fontWeight="900">
@@ -3011,7 +3146,7 @@ function RecurringBillsScreen({ state }) {
             </XStack>
           </YStack>
           {state.upcomingRecurring.map((expense) => (
-            <XStack key={expense.sourceExpenseId} ai="center" gap="$2" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
+            <XStack key={expense.sourceExpenseId} ai="center" gap="$2" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3">
               <YStack flex={1}>
                 <Text color="#09090b" fontSize={14} fontWeight="900">
                   {expense.description}
@@ -3043,6 +3178,71 @@ function RecurringBillsScreen({ state }) {
   )
 }
 
+function DesktopNav({ activeTab, onChange, syncState, unreadNotificationCount }) {
+  return (
+    <YStack width={276} bg="#ffffff" borderRightWidth={1} borderColor="#e5e5e5" px="$3" py="$4" gap="$4">
+      <YStack gap="$1" px="$2">
+        <SizableText color="#71717a" size="$2" fontWeight="800" textTransform="uppercase">
+          SplitClub
+        </SizableText>
+        <Text color="#09090b" fontSize={24} lineHeight={29} fontWeight="900">
+          Ledger
+        </Text>
+      </YStack>
+
+      <YStack gap="$1">
+        {navItems.map((item) => {
+          const Icon = item.icon
+          const active = activeTab === item.id
+          const badge = item.id === 'settings' && unreadNotificationCount > 0 ? unreadNotificationCount : null
+          return (
+            <Button
+              key={item.id}
+              unstyled
+              onPress={() => onChange(item.id)}
+              bg={active ? '#09090b' : '#ffffff'}
+              borderWidth={1}
+              borderColor={active ? '#09090b' : '#ffffff'}
+              br="$2"
+              px="$3"
+              py="$2.5"
+              pressStyle={{ bg: active ? '#18181b' : '#f4f4f5', scale: 0.99 }}
+            >
+              <XStack ai="center" gap="$2.5">
+                <YStack ai="center" jc="center" h={34} w={34} br="$2" bg={active ? '#27272a' : '#f4f4f5'}>
+                  <Icon size={17} color={active ? '#ffffff' : '#09090b'} />
+                </YStack>
+                <YStack flex={1}>
+                  <Text color={active ? '#ffffff' : '#09090b'} fontSize={14} fontWeight="900">
+                    {item.label}
+                  </Text>
+                  <SizableText color={active ? '#d4d4d8' : '#71717a'} size="$2" numberOfLines={1}>
+                    {item.description}
+                  </SizableText>
+                </YStack>
+                {badge ? (
+                  <YStack ai="center" jc="center" minWidth={24} h={24} br={999} bg={active ? '#ffffff' : '#09090b'} px="$2">
+                    <SizableText color={active ? '#09090b' : '#ffffff'} size="$1" fontWeight="900">
+                      {badge}
+                    </SizableText>
+                  </YStack>
+                ) : null}
+              </XStack>
+            </Button>
+          )
+        })}
+      </YStack>
+
+      <YStack mt="auto" gap="$2" borderTopWidth={1} borderColor="#e5e5e5" pt="$3" px="$2">
+        <SizableText color="#71717a" size="$2" fontWeight="800" textTransform="uppercase">
+          Sync
+        </SizableText>
+        <Muted>{syncState}</Muted>
+      </YStack>
+    </YStack>
+  )
+}
+
 function BottomNav({ activeTab, onChange }) {
   return (
     <YStack position="absolute" left={0} right={0} bottom={0} bg="#ffffff" borderTopWidth={1} borderColor="#e5e5e5" px="$3" pt="$2" pb="$3">
@@ -3058,7 +3258,7 @@ function BottomNav({ activeTab, onChange }) {
               ai="center"
               gap="$1"
               py="$2"
-              br="$3"
+              br="$2"
               bg={active ? '#09090b' : '#ffffff'}
               onPress={() => onChange(item.id)}
               pressStyle={{ scale: 0.98, bg: active ? '#18181b' : '#f4f4f5' }}
@@ -3077,7 +3277,7 @@ function BottomNav({ activeTab, onChange }) {
 
 function Panel({ title, actionLabel, onAction, children }) {
   return (
-    <YStack bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$4" gap="$3" p="$3.5">
+    <YStack bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$2" gap="$3" p="$3.5">
       {title ? (
         <XStack ai="center" jc="space-between" gap="$3">
           <Text color="#09090b" fontSize={17} fontWeight="900">
@@ -3123,7 +3323,7 @@ function ExpenseRow({ expense, onPress }) {
 function GroupButton({ label, meta, active, onPress }) {
   return (
     <Button unstyled onPress={onPress}>
-      <XStack ai="center" jc="space-between" bg={active ? '#09090b' : '#ffffff'} borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
+      <XStack ai="center" jc="space-between" bg={active ? '#09090b' : '#ffffff'} borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3">
         <YStack>
           <Text color={active ? '#ffffff' : '#09090b'} fontSize={15} fontWeight="900">
             {label}
@@ -3140,7 +3340,7 @@ function FeatureList({ rows }) {
   return (
     <YStack gap="$2">
       {rows.map(([title, body]) => (
-        <XStack key={title} gap="$2.5" ai="flex-start" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$3" p="$3">
+        <XStack key={title} gap="$2.5" ai="flex-start" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3">
           {title.includes('Receipt') ? <Camera size={17} color="#09090b" /> : null}
           {title.includes('Recurring') ? <Bell size={17} color="#09090b" /> : null}
           {title.includes('Currency') || title.includes('Split') ? <CircleDollarSign size={17} color="#09090b" /> : null}
@@ -3178,7 +3378,7 @@ function Chip({ label, active, onPress }) {
 
 function PrimaryButton({ icon, label, onPress }) {
   return (
-    <Button h={48} br="$3" bg="#09090b" color="#ffffff" onPress={onPress} pressStyle={{ bg: '#27272a', scale: 0.99 }}>
+    <Button h={48} br="$2" bg="#09090b" color="#ffffff" onPress={onPress} pressStyle={{ bg: '#27272a', scale: 0.99 }}>
       <XStack ai="center" gap="$2">
         {icon}
         <Text color="#ffffff" fontSize={15} fontWeight="900">
@@ -3191,7 +3391,7 @@ function PrimaryButton({ icon, label, onPress }) {
 
 function SecondaryButton({ icon, label, onPress }) {
   return (
-    <Button flex={1} h={44} br="$3" bg="#ffffff" borderColor="#e4e4e7" borderWidth={1} color="#09090b" onPress={onPress} pressStyle={{ bg: '#f4f4f5', scale: 0.99 }}>
+    <Button flex={1} h={44} br="$2" bg="#ffffff" borderColor="#e4e4e7" borderWidth={1} color="#09090b" onPress={onPress} pressStyle={{ bg: '#f4f4f5', scale: 0.99 }}>
       <XStack ai="center" jc="center" gap="$2">
         {icon}
         <SizableText color="#09090b" size="$3" fontWeight="900">
