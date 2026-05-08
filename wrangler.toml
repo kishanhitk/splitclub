@@ -1,0 +1,16 @@
+name = "splitclub-api"
+main = "worker/index.ts"
+compatibility_date = "2026-05-08"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "splitclub"
+database_id = "replace-with-cloudflare-d1-id"
+
+[[r2_buckets]]
+binding = "RECEIPTS"
+bucket_name = "splitclub-receipts"
+
+[[queues.producers]]
+binding = "SYNC_QUEUE"
+queue = "splitclub-sync"
