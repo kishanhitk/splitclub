@@ -123,6 +123,10 @@ function groupRevision(group: Group) {
   return group.updatedAt ?? group.deletedAt ?? group.name
 }
 
+function memberRevision(member: Member) {
+  return member.updatedAt ?? [member.name, member.email ?? '', member.phone ?? '', member.preferredPayment].join('|')
+}
+
 function baseRevisionHeader(c: Context) {
   return c.req.header('x-splitclub-base-revision') ?? c.req.header('if-unmodified-since')
 }
@@ -157,6 +161,23 @@ function groupConflictResponse(c: Context, group: Group) {
       baseRevision,
       currentRevision,
       remoteRecord: group,
+    },
+  }, 409)
+}
+
+function memberConflictResponse(c: Context, member: Member) {
+  const baseRevision = baseRevisionHeader(c)
+  const currentRevision = memberRevision(member)
+  if (!baseRevision || !currentRevision || baseRevision === currentRevision) return null
+  return c.json({
+    error: 'member_conflict',
+    message: 'Account changed in the cloud before this mutation was pushed.',
+    conflict: {
+      entity: 'member',
+      recordId: member.id,
+      baseRevision,
+      currentRevision,
+      remoteRecord: member,
     },
   }, 409)
 }
@@ -254,6 +275,8 @@ export function createApp() {
   app.put('/api/account', async (c) => {
     const store = getStore(c.env)
     const member = currentMember(c.get('authMember'))
+    const conflict = memberConflictResponse(c, member)
+    if (conflict) return conflict
     const account = await store.updateMember(member.id, accountUpdateSchema.parse(await c.req.json()), member.id)
     await c.env.SYNC_QUEUE?.send({ type: 'account.updated', memberId: account.id, createdAt: new Date().toISOString() })
     return c.json({ user: account })
@@ -543,7 +566,11 @@ export function createApp() {
     const store = getStore(c.env)
     const member = currentMember(c.get('authMember'))
     const payload = settlementSchema.parse(await c.req.json())
-    if (payload.groupId) await requireGroupAccess(store, member.id, payload.groupId)
+    if (payload.groupId) {
+      const group = await requireGroupAccess(store, member.id, payload.groupId)
+      const conflict = groupConflictResponse(c, group)
+      if (conflict) return conflict
+    }
     if (!payload.groupId && payload.from !== member.id && payload.to !== member.id) {
       throw new AuthError('Non-group settlements must include the authenticated user', 403)
     }

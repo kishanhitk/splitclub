@@ -231,6 +231,45 @@ describe('SplitClub Worker API', () => {
     expect(queueMessages.some((message) => JSON.stringify(message).includes('account.updated'))).toBe(true)
   })
 
+  test('rejects stale account updates with member conflict details', async () => {
+    const env = createEnv()
+    const baseRevision = 'Kishan|kishan@example.com||upi'
+
+    const firstUpdate = await request(
+      '/api/account',
+      {
+        method: 'PUT',
+        headers: { 'x-splitclub-base-revision': baseRevision },
+        body: JSON.stringify({
+          name: 'Kishan Fresh',
+          email: 'fresh@example.com',
+          phone: '+91 98888 88888',
+          preferredPayment: 'upi',
+        }),
+      },
+      env,
+    )
+    expect(firstUpdate.status).toBe(200)
+
+    const staleUpdate = await request(
+      '/api/account',
+      {
+        method: 'PUT',
+        headers: { 'x-splitclub-base-revision': baseRevision },
+        body: JSON.stringify({
+          name: 'Kishan Stale',
+          email: 'stale@example.com',
+          preferredPayment: 'bank',
+        }),
+      },
+      env,
+    )
+    const body = (await staleUpdate.json()) as { error: string; conflict: { entity: string; recordId: string; baseRevision: string } }
+    expect(staleUpdate.status).toBe(409)
+    expect(body.error).toBe('member_conflict')
+    expect(body.conflict).toMatchObject({ entity: 'member', recordId: 'kishan', baseRevision })
+  })
+
   test('lists groups and members from the store', async () => {
     const env = createEnv()
 
@@ -650,6 +689,50 @@ describe('SplitClub Worker API', () => {
     expect(removalResponse.status).toBe(409)
     expect(removalBody.error).toBe('group_conflict')
     expect(removalBody.conflict).toMatchObject({ entity: 'group', recordId: 'goa' })
+  })
+
+  test('rejects stale grouped settlement pushes with group conflict details', async () => {
+    const env = createEnv()
+    const groupsResponse = await request('/api/groups', {}, env)
+    const groupsBody = (await groupsResponse.json()) as { groups: Array<{ id: string; updatedAt?: string; name: string }> }
+    const goa = groupsBody.groups.find((group) => group.id === 'goa')
+    const baseRevision = goa?.updatedAt ?? goa?.name ?? 'goa'
+
+    const firstDefaultsResponse = await request(
+      '/api/groups/goa/defaults',
+      {
+        method: 'PUT',
+        headers: { 'x-splitclub-base-revision': baseRevision },
+        body: JSON.stringify({
+          simplifyDebts: false,
+          defaultSplitMode: 'equal',
+          defaultSplits: [],
+        }),
+      },
+      env,
+    )
+    expect(firstDefaultsResponse.status).toBe(200)
+
+    const settlementResponse = await request(
+      '/api/settlements',
+      {
+        method: 'POST',
+        headers: { 'x-splitclub-base-revision': baseRevision },
+        body: JSON.stringify({
+          groupId: 'goa',
+          from: 'anya',
+          to: 'kishan',
+          amount: 100,
+          currency: 'INR',
+          date: '2026-05-08',
+        }),
+      },
+      env,
+    )
+    const body = (await settlementResponse.json()) as { error: string; conflict: { entity: string; recordId: string; baseRevision: string } }
+    expect(settlementResponse.status).toBe(409)
+    expect(body.error).toBe('group_conflict')
+    expect(body.conflict).toMatchObject({ entity: 'group', recordId: 'goa', baseRevision })
   })
 
   test('exports scoped CSV and JSON backup files', async () => {

@@ -293,6 +293,7 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
         phone: input.phone,
         avatar: input.avatar ?? input.name.slice(0, 2).toUpperCase(),
         preferredPayment: input.preferredPayment,
+        updatedAt: now(),
       }
       ledger = { ...ledger, members: [member, ...ledger.members] }
       audit('user', member.id, 'created', member)
@@ -308,6 +309,7 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
         phone: input.phone,
         avatar: input.avatar ?? member.avatar,
         preferredPayment: input.preferredPayment,
+        updatedAt: now(),
       }
       ledger = {
         ...ledger,
@@ -694,6 +696,7 @@ type UserRow = {
   phone?: string
   avatar: string
   preferred_payment: Member['preferredPayment']
+  updated_at?: string
 }
 
 type GroupRow = {
@@ -779,6 +782,7 @@ const rowToMember = (row: UserRow): Member => ({
   phone: row.phone,
   avatar: row.avatar,
   preferredPayment: row.preferred_payment,
+  updatedAt: row.updated_at,
 })
 
 export function createD1LedgerStore(db: D1Database): LedgerStore {
@@ -1031,7 +1035,7 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
           .bind(provider, input.id)
           .run()
         const existingUser = await db
-          .prepare('SELECT id, name, email, phone, avatar, preferred_payment FROM users WHERE id = ? AND deleted_at IS NULL')
+          .prepare('SELECT id, name, email, phone, avatar, preferred_payment, updated_at FROM users WHERE id = ? AND deleted_at IS NULL')
           .bind(existingIdentity.user_id)
           .first<UserRow>()
         if (existingUser) {
@@ -1041,7 +1045,7 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
 
       const emailUser = input.email
         ? await db
-            .prepare('SELECT id, name, email, phone, avatar, preferred_payment FROM users WHERE email = ? AND deleted_at IS NULL')
+            .prepare('SELECT id, name, email, phone, avatar, preferred_payment, updated_at FROM users WHERE email = ? AND deleted_at IS NULL')
             .bind(input.email)
             .first<UserRow>()
         : null
@@ -1072,7 +1076,7 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
       }
     },
     async listMembers() {
-      const result = await db.prepare('SELECT id, name, email, phone, avatar, preferred_payment FROM users WHERE deleted_at IS NULL ORDER BY name').all<UserRow>()
+      const result = await db.prepare('SELECT id, name, email, phone, avatar, preferred_payment, updated_at FROM users WHERE deleted_at IS NULL ORDER BY name').all<UserRow>()
       return result.results.map((row) => ({
         id: row.id,
         name: row.name,
@@ -1100,7 +1104,7 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
     },
     async updateMember(memberId, input, actorId) {
       const existing = await db
-        .prepare('SELECT id, name, email, phone, avatar, preferred_payment FROM users WHERE id = ? AND deleted_at IS NULL')
+        .prepare('SELECT id, name, email, phone, avatar, preferred_payment, updated_at FROM users WHERE id = ? AND deleted_at IS NULL')
         .bind(memberId)
         .first<UserRow>()
       if (!existing) throw new Error('Member not found')
@@ -1113,11 +1117,16 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
         preferredPayment: input.preferredPayment,
       }
       await db
-        .prepare('UPDATE users SET name = ?, email = ?, phone = ?, avatar = ?, preferred_payment = ? WHERE id = ? AND deleted_at IS NULL')
+        .prepare('UPDATE users SET name = ?, email = ?, phone = ?, avatar = ?, preferred_payment = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL')
         .bind(updated.name, updated.email, updated.phone, updated.avatar, updated.preferredPayment, memberId)
         .run()
+      const updatedRow = await db
+        .prepare('SELECT id, name, email, phone, avatar, preferred_payment, updated_at FROM users WHERE id = ? AND deleted_at IS NULL')
+        .bind(memberId)
+        .first<UserRow>()
+      if (!updatedRow) throw new Error('Member was not updated')
       await audit('user', memberId, 'updated', updated, actorId)
-      return updated
+      return rowToMember(updatedRow)
     },
     async listFriends() {
       return this.listMembers()
