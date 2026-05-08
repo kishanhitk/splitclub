@@ -35,7 +35,7 @@ export type ExpenseHistoryEvent = {
   id: string
   expenseId: string
   memberId?: string
-  action: 'created' | 'updated' | 'commented' | 'deleted' | 'restored'
+  action: 'created' | 'updated' | 'commented' | 'deleted' | 'restored' | 'converted'
   summary: string
   createdAt: string
 }
@@ -81,6 +81,8 @@ export type Ledger = {
   expenses: Expense[]
   defaultCurrency: string
   exchangeRates: Record<string, number>
+  exchangeRateSource?: string
+  exchangeRatesUpdatedAt?: string
 }
 
 export type Balance = {
@@ -103,6 +105,13 @@ export type UpcomingRecurringExpense = {
   amount: number
   currency: string
   recurrence: Exclude<Recurrence, 'none'>
+}
+
+export type CurrencyExposure = {
+  currency: string
+  expenseCount: number
+  originalAmount: number
+  convertedAmount: number
 }
 
 export const roundMoney = (amount: number) => Math.round((amount + Number.EPSILON) * 100) / 100
@@ -156,6 +165,81 @@ export function convertAmount(amount: number, from: string, to: string, rates: R
   const fromRate = rates[from] ?? 1
   const toRate = rates[to] ?? 1
   return roundMoney((amount / fromRate) * toRate)
+}
+
+export function summarizeCurrencyExposure(ledger: Ledger, groupId?: string | null, targetCurrency = ledger.defaultCurrency): CurrencyExposure[] {
+  const totals = new Map<string, CurrencyExposure>()
+  for (const expense of ledger.expenses) {
+    if (expense.deletedAt) continue
+    if (groupId !== undefined && expense.groupId !== groupId) continue
+    const current = totals.get(expense.currency) ?? {
+      currency: expense.currency,
+      expenseCount: 0,
+      originalAmount: 0,
+      convertedAmount: 0,
+    }
+    current.expenseCount += 1
+    current.originalAmount = roundMoney(current.originalAmount + expense.amount)
+    current.convertedAmount = roundMoney(
+      current.convertedAmount + convertAmount(expense.amount, expense.currency, targetCurrency, ledger.exchangeRates),
+    )
+    totals.set(expense.currency, current)
+  }
+  return Array.from(totals.values()).sort((a, b) => b.convertedAmount - a.convertedAmount)
+}
+
+const convertSplitValue = (expense: Expense, value: number, targetCurrency: string, rates: Record<string, number>) => {
+  if (expense.splitMode !== 'exact' && expense.splitMode !== 'adjustment') return value
+  return convertAmount(value, expense.currency, targetCurrency, rates)
+}
+
+export function convertExpensesToCurrency(
+  ledger: Ledger,
+  groupId: string | null | undefined,
+  targetCurrency: string,
+  actorId = 'system',
+  convertedAt = new Date().toISOString(),
+): Ledger {
+  return {
+    ...ledger,
+    defaultCurrency: targetCurrency,
+    groups: ledger.groups.map((group) => (
+      groupId !== undefined && group.id === groupId ? { ...group, defaultCurrency: targetCurrency } : group
+    )),
+    expenses: ledger.expenses.map((expense) => {
+      if (expense.deletedAt) return expense
+      if (groupId !== undefined && expense.groupId !== groupId) return expense
+      if (expense.currency === targetCurrency) return expense
+
+      const previousCurrency = expense.currency
+      const previousAmount = expense.amount
+      const convertedAmount = convertAmount(expense.amount, expense.currency, targetCurrency, ledger.exchangeRates)
+      return {
+        ...expense,
+        amount: convertedAmount,
+        currency: targetCurrency,
+        splits: expense.splits.map((split) => ({
+          ...split,
+          value: convertSplitValue(expense, split.value, targetCurrency, ledger.exchangeRates),
+        })),
+        receiptItems: expense.receiptItems?.map((item) => ({
+          ...item,
+          amount: convertAmount(item.amount, expense.currency, targetCurrency, ledger.exchangeRates),
+        })),
+        history: [
+          {
+            id: `history-${expense.id}-converted-${convertedAt}`,
+            expenseId: expense.id,
+            memberId: actorId,
+            action: 'converted',
+            summary: `Converted ${previousCurrency} ${previousAmount.toFixed(2)} to ${targetCurrency} ${convertedAmount.toFixed(2)}`,
+            createdAt: convertedAt,
+          },
+          ...(expense.history ?? []),
+        ],
+      }
+    }),
+  }
 }
 
 export function calculateBalances(ledger: Ledger, groupId?: string | null, currency = ledger.defaultCurrency): Balance[] {

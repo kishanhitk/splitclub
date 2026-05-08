@@ -3,12 +3,14 @@ import { seedLedger } from '../data/seed'
 import {
   calculateBalances,
   calculateOwedShares,
+  convertExpensesToCurrency,
   getNextDueDate,
   getReminderDate,
   listUpcomingRecurringExpenses,
   searchExpenses,
   simplifyDebts,
   spendingTrend,
+  summarizeCurrencyExposure,
 } from './split'
 
 describe('split engine', () => {
@@ -45,6 +47,41 @@ describe('split engine', () => {
   test('builds spending trend by month', () => {
     expect(spendingTrend(seedLedger, 'goa', 'INR')).toEqual([{ month: '2026-05', amount: 30800 }])
     expect(spendingTrend(seedLedger, null, 'INR')[0].amount).toBe(1500)
+  })
+
+  test('summarizes and applies currency conversion without touching deleted expenses', () => {
+    const ledger = {
+      ...seedLedger,
+      expenses: [
+        ...seedLedger.expenses,
+        {
+          ...seedLedger.expenses[3],
+          id: 'deleted-usd',
+          groupId: 'goa',
+          deletedAt: '2026-05-06T00:00:00.000Z',
+        },
+      ],
+    }
+    const exposure = summarizeCurrencyExposure(ledger, 'goa', 'USD')
+    expect(exposure.find((item) => item.currency === 'INR')).toMatchObject({
+      expenseCount: 3,
+      convertedAmount: 384,
+    })
+    expect(exposure.find((item) => item.currency === 'USD')).toBeUndefined()
+
+    const converted = convertExpensesToCurrency(ledger, 'goa', 'USD', 'kishan', '2026-05-08T00:00:00.000Z')
+    expect(converted.defaultCurrency).toBe('USD')
+    expect(converted.groups.find((group) => group.id === 'goa')?.defaultCurrency).toBe('USD')
+    expect(converted.expenses.find((expense) => expense.id === 'e1')).toMatchObject({
+      amount: 288,
+      currency: 'USD',
+    })
+    expect(converted.expenses.find((expense) => expense.id === 'e2')?.receiptItems?.[0].amount).toBe(14.4)
+    expect(converted.expenses.find((expense) => expense.id === 'e2')?.history?.[0]).toMatchObject({
+      action: 'converted',
+      memberId: 'kishan',
+    })
+    expect(converted.expenses.find((expense) => expense.id === 'deleted-usd')?.currency).toBe('USD')
   })
 
   test('generates upcoming recurring bills with reminder dates', () => {
