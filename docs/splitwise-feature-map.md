@@ -40,11 +40,12 @@ SplitClub should cover the following Splitwise-style capabilities:
 - Mobile-first UI includes groups, friends, expenses, split mode controls, balances, simplified settlements, search, category totals, recurring/receipt/export affordances, currency conversion controls, and offline persistence.
 - Domain logic is isolated in `src/domain/split.ts` and covered by Bun tests.
 - Cloudflare Worker API contract is started in `worker/index.ts` with Hono, D1/R2/Queue bindings in `wrangler.toml`.
+- The app has a Cloud sync workspace that can pull `/api/sync` data into local storage and merge remote records with local-only records.
 
 ## Next Tickets
 
 - Authentication, invites, and friend permissions.
-- Durable D1 schema, migrations, and sync conflict handling.
+- Push-side sync conflict handling and live Cloudflare deployment.
 - Real receipt OCR pipeline and R2 uploads.
 - Full recurring bill scheduler and notifications.
 - Android build verification and installable preview.
