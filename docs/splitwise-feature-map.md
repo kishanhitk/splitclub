@@ -41,6 +41,7 @@ SplitClub should cover the following Splitwise-style capabilities:
 - Focused workspaces cover groups, friends, invites/roles, stepped expense creation, split mode controls, balances, simplified settlements, search, category totals, recurring/receipt/export affordances, currency conversion controls, and offline persistence.
 - Domain logic is isolated in `src/domain/split.ts` and covered by Bun tests.
 - Cloudflare Worker API contract is started in `worker/index.ts` with Hono, D1/R2/Queue bindings in `wrangler.toml`.
+- Cloudflare production deployment is scripted through GitHub Actions with verified Wrangler action pins, remote D1 migrations, and Worker deploy steps.
 - The app has a Cloud sync workspace that can pull `/api/sync` data into local storage and merge remote records with local-only records.
 - Cloud pull sync reports remote additions, local preserved records, and same-id merge conflicts while preserving deterministic remote-wins behavior.
 - Cloud sync conflicts keep local and remote record details so users can resolve each conflict by keeping the cloud copy or restoring the local copy.
@@ -59,7 +60,7 @@ SplitClub should cover the following Splitwise-style capabilities:
 ## Next Tickets
 
 - Production OIDC provider rollout and account linking controls.
-- Live Cloudflare deployment and push-side conflict resolution.
+- Production Cloudflare resource provisioning, secret setup, and push-side conflict resolution.
 - Receipt retry processing and stronger OCR review history.
 - Recurring rule history, skipped occurrences, and server-side scheduler automation.
 - Signed Android preview and release distribution.
