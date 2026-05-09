@@ -29,7 +29,7 @@ export const seedLedger: Ledger = {
   members: [
     { id: 'kishan', name: 'Kishan', email: 'kishan@example.com', avatar: 'KI', preferredPayment: 'upi' },
     { id: 'anya', name: 'Anya', email: 'anya@example.com', avatar: 'AN', preferredPayment: 'bank' },
-    { id: 'dev', name: 'Dev', phone: '+91 90000 00000', avatar: 'DE', preferredPayment: 'cash' },
+    { id: 'dev', name: 'Dev', phone: '+91 90000 00000', avatar: 'DE', preferredPayment: 'paytm' },
     { id: 'mia', name: 'Mia', email: 'mia@example.com', avatar: 'MI', preferredPayment: 'paypal' },
   ],
   groups: [

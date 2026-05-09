@@ -21,7 +21,7 @@ export const expenseKinds = ['expense', 'refund', 'reimbursement', 'debt']
 export const categories = ['General', 'Transport', 'Food', 'Lodging', 'Rent', 'Groceries', 'Utilities', 'Tickets']
 export const groupRoles = ['owner', 'admin', 'member', 'viewer']
 export const recurrenceOptions = ['none', 'weekly', 'monthly', 'yearly']
-export const paymentMethods = ['cash', 'upi', 'venmo', 'paypal', 'bank']
+export const paymentMethods = ['cash', 'upi', 'paytm', 'venmo', 'paypal', 'bank']
 export const paymentStatuses = ['recorded', 'pending', 'confirmed']
 export const groupViews = [
   { id: 'overview', label: 'Overview' },
