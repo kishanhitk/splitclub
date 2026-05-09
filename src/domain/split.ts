@@ -78,7 +78,7 @@ export type Group = {
   emoji: string
   coverPhotoUrl?: string
   coverPhotoLabel?: string
-  category: 'trip' | 'home' | 'couple' | 'friends' | 'project'
+  category: 'trip' | 'home' | 'couple' | 'friends' | 'family' | 'wedding' | 'coworkers' | 'project' | 'iou'
   memberIds: string[]
   defaultCurrency: string
   simplifyDebts: boolean

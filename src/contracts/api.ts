@@ -107,7 +107,7 @@ export const groupSchema = z.object({
   emoji: z.string().min(1).default('G'),
   coverPhotoUrl: z.string().url().optional(),
   coverPhotoLabel: z.string().trim().min(1).max(80).optional(),
-  category: z.enum(['trip', 'home', 'couple', 'friends', 'project']).default('friends'),
+  category: z.enum(['trip', 'home', 'couple', 'friends', 'family', 'wedding', 'coworkers', 'project', 'iou']).default('friends'),
   memberIds: z.array(z.string().min(1)).min(1),
   defaultCurrency: z.string().length(3).transform((value) => value.toUpperCase()).default('INR'),
   simplifyDebts: z.boolean().default(true),
