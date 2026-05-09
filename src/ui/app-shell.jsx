@@ -25,7 +25,7 @@ import {
   Users,
   WalletCards,
 } from 'lucide-react-native'
-import { Button, Input, SizableText, Text, XStack, YStack } from 'tamagui'
+import { Button, Input, SizableText, Text, TextArea, XStack, YStack } from 'tamagui'
 import { roundMoney } from '../domain/split'
 import {
   addExpenseSteps,
@@ -1774,17 +1774,59 @@ function ToolsScreen({ state }) {
         <FeatureList
           rows={[
             ['Receipt storage', 'R2-backed attachments and OCR pipeline.'],
+            ['Transaction import', 'Paste card or bank rows, preview purchases, and prefill a split.'],
             ['Currency conversion', 'Group and friend balances in selected currency.'],
             ['CSV export', 'Download spreadsheet-ready expense and settlement history.'],
             ['Full backup', 'Download a complete JSON ledger backup for account portability.'],
             ['Offline sync', 'Local-first ledger with D1 pull sync.'],
           ]}
         />
-        <XStack gap="$2" mt="$2">
+        <XStack gap="$2" mt="$2" flexWrap="wrap">
           <SecondaryButton icon={<Download size={16} color="#09090b" />} label="Export CSV" onPress={state.shareExport} />
           <SecondaryButton icon={<Download size={16} color="#09090b" />} label="Full backup" onPress={state.shareBackup} />
           <SecondaryButton icon={<RefreshCcw size={16} color="#09090b" />} label="Reset demo" onPress={state.restoreDemo} />
         </XStack>
+      </Panel>
+      <Panel title="Transaction import">
+        <YStack gap="$3">
+          <Field label="Statement rows">
+            <TextArea
+              value={state.transactionImportText}
+              onChangeText={state.setTransactionImportText}
+              textAlignVertical="top"
+              h={128}
+              placeholder="Date,Merchant,Amount,Currency"
+              {...inputProps}
+            />
+          </Field>
+          <XStack gap="$2" flexWrap="wrap">
+            <SecondaryButton icon={<Search size={16} color="#09090b" />} label="Preview" onPress={state.parseTransactionImport} />
+            <SecondaryButton icon={<RefreshCcw size={16} color="#09090b" />} label="Clear" onPress={state.clearTransactionImport} />
+          </XStack>
+          <Muted>{state.transactionImportStatus}</Muted>
+          {state.importedTransactions.length ? (
+            <YStack gap="$2">
+              {state.importedTransactions.slice(0, 6).map((transaction) => (
+                <Button key={transaction.id} unstyled onPress={() => state.applyImportedTransaction(transaction.id)}>
+                  <XStack ai="center" jc="space-between" gap="$3" bg="#ffffff" borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3">
+                    <YStack flex={1} minWidth={0} ai="flex-start">
+                      <Text width="100%" color="#09090b" fontSize={14} fontWeight="900" numberOfLines={1} ta="left">
+                        {transaction.description}
+                      </Text>
+                      <Muted>{transaction.date} · {transaction.category} · {transaction.currency} {transaction.amount.toFixed(2)}</Muted>
+                    </YStack>
+                    <YStack bg="#09090b" borderWidth={1} borderColor="#09090b" br="$2" px="$3" py="$2">
+                      <SizableText color="#ffffff" size="$2" fontWeight="900">
+                        Use
+                      </SizableText>
+                    </YStack>
+                  </XStack>
+                </Button>
+              ))}
+              {state.importedTransactions.length > 6 ? <Muted>{state.importedTransactions.length - 6} more transactions parsed.</Muted> : null}
+            </YStack>
+          ) : null}
+        </YStack>
       </Panel>
       <Panel title="Cloud sync">
         <YStack gap="$3">

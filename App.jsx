@@ -33,6 +33,7 @@ import {
 } from './src/domain/split'
 import { parseReceiptText } from './src/domain/receipts'
 import { normalizeInviteTokenInput, parseInviteTokenFromUrl } from './src/domain/invites'
+import { parseImportedTransactions } from './src/domain/transactions'
 import { buildReminderNotifications } from './src/notifications/reminders'
 import { buildLedgerNotifications } from './src/notifications/activity'
 import { getAuthProviderConfig, hasRemoteAuthConfig } from './src/auth/provider'
@@ -105,6 +106,9 @@ function SplitClubApp() {
   const [category, setCategory] = useState('Transport')
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
   const [notes, setNotes] = useState('')
+  const [transactionImportText, setTransactionImportText] = useState('Date,Merchant,Amount,Currency\n2026-05-04,Airport cab,-2400,INR\n2026-05-05,Dinner at Martins,-6800,INR')
+  const [importedTransactions, setImportedTransactions] = useState([])
+  const [transactionImportStatus, setTransactionImportStatus] = useState('Paste CSV or statement rows to preview transactions.')
   const [recurrence, setRecurrence] = useState('none')
   const [reminderDays, setReminderDays] = useState('3')
   const [paidBy, setPaidBy] = useState('kishan')
@@ -1796,6 +1800,43 @@ function SplitClubApp() {
     Alert.alert('Backup ready', 'A full JSON backup was prepared.')
   }
 
+  const parseTransactionImport = () => {
+    const transactions = parseImportedTransactions(transactionImportText, currency || ledger.defaultCurrency)
+    setImportedTransactions(transactions)
+    setTransactionImportStatus(
+      transactions.length
+        ? `${transactions.length} transactions ready to split`
+        : 'No transactions found. Include date, description, and amount columns.',
+    )
+  }
+
+  const clearTransactionImport = () => {
+    setImportedTransactions([])
+    setTransactionImportText('')
+    setTransactionImportStatus('Import cleared')
+  }
+
+  const applyImportedTransaction = (transactionId) => {
+    const transaction = importedTransactions.find((candidate) => candidate.id === transactionId)
+    if (!transaction) return
+
+    setDescription(transaction.description)
+    setAmount(String(transaction.amount))
+    setCurrency(transaction.currency)
+    setCategory(transaction.category)
+    setDate(transaction.date)
+    setExpenseKind('expense')
+    setRecurrence('none')
+    setAttachmentName('Imported transaction')
+    setNotes(`Imported transaction · ${transaction.sourceRow}`)
+    setSelectedExpenseId(null)
+    setGroupSettingsOpen(false)
+    setMoreSection('index')
+    setAddExpenseStep('basics')
+    setActiveTab('add')
+    setTransactionImportStatus(`${transaction.description} is ready to split`)
+  }
+
   const restoreDemo = async () => {
     const restored = await resetLedger()
     setLedger(restored)
@@ -2038,6 +2079,13 @@ function SplitClubApp() {
     openPaymentHandoff,
     shareExport,
     shareBackup,
+    transactionImportText,
+    setTransactionImportText,
+    importedTransactions,
+    transactionImportStatus,
+    parseTransactionImport,
+    clearTransactionImport,
+    applyImportedTransaction,
     restoreDemo,
   }
 

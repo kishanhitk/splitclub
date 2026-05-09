@@ -18,7 +18,7 @@ import { currencyCodes } from '../domain/currencies'
 export const splitModes = ['equal', 'exact', 'percent', 'shares', 'adjustment']
 export const currencies = currencyCodes
 export const expenseKinds = ['expense', 'refund', 'reimbursement', 'debt']
-export const categories = ['Transport', 'Food', 'Lodging', 'Rent', 'Groceries', 'Utilities', 'Tickets']
+export const categories = ['General', 'Transport', 'Food', 'Lodging', 'Rent', 'Groceries', 'Utilities', 'Tickets']
 export const groupRoles = ['owner', 'admin', 'member', 'viewer']
 export const recurrenceOptions = ['none', 'weekly', 'monthly', 'yearly']
 export const paymentMethods = ['cash', 'upi', 'venmo', 'paypal', 'bank']
