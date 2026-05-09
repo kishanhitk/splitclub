@@ -3,7 +3,7 @@ import { z } from 'zod'
 export const splitModeSchema = z.enum(['equal', 'exact', 'percent', 'shares', 'adjustment'])
 export const expenseKindSchema = z.enum(['expense', 'settlement', 'refund', 'reimbursement', 'debt'])
 export const recurrenceSchema = z.enum(['none', 'weekly', 'monthly', 'yearly'])
-export const paymentMethodSchema = z.enum(['cash', 'upi', 'venmo', 'paypal', 'bank'])
+export const paymentMethodSchema = z.enum(['cash', 'upi', 'paytm', 'venmo', 'paypal', 'bank'])
 export const paymentStatusSchema = z.enum(['recorded', 'pending', 'confirmed'])
 
 export const authUserSchema = z.object({
@@ -28,12 +28,12 @@ export const memberSchema = z.object({
   email: z.string().email().optional(),
   phone: z.string().min(3).optional(),
   avatar: z.string().min(1).optional(),
-  preferredPayment: z.enum(['cash', 'upi', 'venmo', 'paypal', 'bank']).default('cash'),
+  preferredPayment: z.enum(['cash', 'upi', 'paytm', 'venmo', 'paypal', 'bank']).default('cash'),
 })
 
 export const accountUpdateSchema = memberSchema.omit({ id: true }).partial().extend({
   name: z.string().min(1),
-  preferredPayment: z.enum(['cash', 'upi', 'venmo', 'paypal', 'bank']).default('cash'),
+  preferredPayment: z.enum(['cash', 'upi', 'paytm', 'venmo', 'paypal', 'bank']).default('cash'),
 })
 
 export const splitShareSchema = z.object({
@@ -125,7 +125,7 @@ export const friendSchema = z.object({
   email: z.string().email().optional(),
   phone: z.string().min(3).optional(),
   avatar: z.string().min(1).optional(),
-  preferredPayment: z.enum(['cash', 'upi', 'venmo', 'paypal', 'bank']).default('cash'),
+  preferredPayment: z.enum(['cash', 'upi', 'paytm', 'venmo', 'paypal', 'bank']).default('cash'),
 })
 
 export const groupInviteSchema = z.object({

@@ -121,6 +121,18 @@ describe('split engine', () => {
     }).url).toBe('venmo://paycharge?txn=pay&recipients=mia&amount=12.50&note=SplitClub+settlement')
 
     expect(buildPaymentHandoff({
+      method: 'paytm',
+      amount: 900,
+      currency: 'INR',
+      recipientName: 'Dev',
+      reference: 'dev@paytm',
+    })).toMatchObject({
+      available: true,
+      label: 'Open Paytm',
+      url: 'paytmmp://pay?pa=dev%40paytm&pn=Dev&am=900.00&cu=INR&tn=SplitClub+settlement',
+    })
+
+    expect(buildPaymentHandoff({
       method: 'bank',
       amount: 1200,
       currency: 'INR',

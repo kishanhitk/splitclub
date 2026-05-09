@@ -429,8 +429,8 @@ describe('SplitClub Worker API', () => {
           amount: 500,
           currency: 'INR',
           date: '2026-05-08',
-          paymentMethod: 'upi',
-          paymentReference: 'UPI-500',
+          paymentMethod: 'paytm',
+          paymentReference: 'dev@paytm',
           paymentStatus: 'confirmed',
         }),
       },
@@ -442,8 +442,8 @@ describe('SplitClub Worker API', () => {
     expect(settlementResponse.status).toBe(201)
     expect(settlementBody.settlement.kind).toBe('settlement')
     expect(settlementBody.settlement).toMatchObject({
-      paymentMethod: 'upi',
-      paymentReference: 'UPI-500',
+      paymentMethod: 'paytm',
+      paymentReference: 'dev@paytm',
       paymentStatus: 'confirmed',
     })
   })

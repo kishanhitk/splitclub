@@ -1,7 +1,7 @@
 export type SplitMode = 'equal' | 'exact' | 'percent' | 'shares' | 'adjustment'
 export type ExpenseKind = 'expense' | 'settlement' | 'refund' | 'reimbursement' | 'debt'
 export type Recurrence = 'none' | 'weekly' | 'monthly' | 'yearly'
-export type PaymentMethod = 'cash' | 'upi' | 'venmo' | 'paypal' | 'bank'
+export type PaymentMethod = 'cash' | 'upi' | 'paytm' | 'venmo' | 'paypal' | 'bank'
 export type PaymentStatus = 'recorded' | 'pending' | 'confirmed'
 
 export type Member = {
@@ -10,7 +10,7 @@ export type Member = {
   email?: string
   phone?: string
   avatar: string
-  preferredPayment: 'cash' | 'upi' | 'venmo' | 'paypal' | 'bank'
+  preferredPayment: 'cash' | 'upi' | 'paytm' | 'venmo' | 'paypal' | 'bank'
   updatedAt?: string
 }
 
@@ -399,6 +399,23 @@ export function buildPaymentHandoff(input: {
       label: 'Open UPI',
       url: `upi://pay?${params.toString()}`,
       message: `Open UPI to pay ${input.recipientName}.`,
+    }
+  }
+
+  if (input.method === 'paytm') {
+    const params = new URLSearchParams({
+      pa: reference,
+      pn: input.recipientName,
+      am: amount,
+      cu: input.currency,
+      tn: note,
+    })
+    return {
+      method: input.method,
+      available: true,
+      label: 'Open Paytm',
+      url: `paytmmp://pay?${params.toString()}`,
+      message: `Open Paytm to pay ${input.recipientName}.`,
     }
   }
 
