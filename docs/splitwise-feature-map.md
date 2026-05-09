@@ -20,7 +20,7 @@ Primary sources:
 SplitClub should cover the following Splitwise-style capabilities:
 
 - Account and profile basics: friends, names, emails or phones, privacy-aware expense visibility.
-- Groups: trips, apartments, couples, friends, family, group settings, group cover photos, group invite and membership management.
+- Groups: trips, apartments/homes, couples, friends, family, weddings, coworkers, IOUs, group settings, group cover photos, group invite and membership management.
 - Non-group expenses: one-off bills between arbitrary friends without creating a permanent group.
 - Expense creation: description, amount, payer, date, category, notes, attachment, receipt image.
 - Split modes: equal, exact amounts, percentages, relative shares, adjustments, refunds, reimbursements, and recorded debts.

@@ -68,6 +68,22 @@ export const seedLedger: Ledger = {
         { memberId: 'dev', value: 2 },
       ],
     },
+    {
+      id: 'family',
+      name: 'Family house',
+      emoji: 'F',
+      coverPhotoLabel: 'Family groceries and home bills',
+      category: 'family',
+      memberIds: ['kishan', 'anya', 'dev'],
+      defaultCurrency: 'INR',
+      simplifyDebts: true,
+      defaultSplitMode: 'equal',
+      defaultSplits: [
+        { memberId: 'kishan', value: 1 },
+        { memberId: 'anya', value: 1 },
+        { memberId: 'dev', value: 1 },
+      ],
+    },
   ],
   expenses: [
     {

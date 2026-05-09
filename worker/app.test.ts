@@ -274,9 +274,32 @@ describe('SplitClub Worker API', () => {
     const env = createEnv()
 
     const groupsResponse = await request('/api/groups', {}, env)
-    const groupsBody = (await groupsResponse.json()) as { groups: Array<{ id: string }> }
+    const groupsBody = (await groupsResponse.json()) as { groups: Array<{ id: string; category: string }> }
     expect(groupsResponse.status).toBe(200)
     expect(groupsBody.groups.map((group: { id: string }) => group.id)).toContain('goa')
+    expect(groupsBody.groups.find((group) => group.id === 'family')).toMatchObject({ category: 'family' })
+
+    const weddingResponse = await request(
+      '/api/groups',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          name: 'Wedding weekend',
+          emoji: 'W',
+          category: 'wedding',
+          memberIds: ['anya', 'dev'],
+          defaultCurrency: 'INR',
+          simplifyDebts: true,
+          defaultSplitMode: 'equal',
+          defaultSplits: [],
+        }),
+      },
+      env,
+    )
+    const weddingBody = (await weddingResponse.json()) as { group: { category: string; memberIds: string[] } }
+    expect(weddingResponse.status).toBe(201)
+    expect(weddingBody.group).toMatchObject({ category: 'wedding' })
+    expect(weddingBody.group.memberIds).toContain('kishan')
 
     const membersResponse = await request('/api/members', {}, env)
     const membersBody = (await membersResponse.json()) as { members: unknown[] }

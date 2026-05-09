@@ -19,6 +19,7 @@ export const splitModes = ['equal', 'exact', 'percent', 'shares', 'adjustment']
 export const currencies = currencyCodes
 export const expenseKinds = ['expense', 'refund', 'reimbursement', 'debt']
 export const categories = ['General', 'Transport', 'Food', 'Lodging', 'Rent', 'Groceries', 'Utilities', 'Tickets']
+export const groupCategories = ['trip', 'home', 'couple', 'friends', 'family', 'wedding', 'coworkers', 'project', 'iou']
 export const groupRoles = ['owner', 'admin', 'member', 'viewer']
 export const recurrenceOptions = ['none', 'weekly', 'fortnightly', 'monthly', 'yearly']
 export const paymentMethods = ['cash', 'upi', 'paytm', 'venmo', 'paypal', 'bank']
