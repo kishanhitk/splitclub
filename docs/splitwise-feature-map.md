@@ -27,7 +27,7 @@ SplitClub should cover the following Splitwise-style capabilities:
 - Balances: per-friend and per-group balances, dashboard totals, spending totals, separate currency balances.
 - Debt simplification: minimize total settlement payments without changing anyone's net balance.
 - Settle up: record cash payments and provide payment handoff links or instructions for UPI, Paytm, bank, PayPal, Venmo, or future providers.
-- Recurring expenses: weekly, monthly, yearly bills and reminder offsets.
+- Recurring expenses: weekly, fortnightly, monthly, yearly bills and reminder offsets.
 - Offline and sync: local-first ledger, cloud sync, conflict-safe future API mutations.
 - Currencies: default currency, 100+ currency catalog, group conversion workflow using current rates.
 - Search and filters: locate old expenses by description, notes, category, currency, attachment, group, member, or date.

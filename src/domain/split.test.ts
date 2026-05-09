@@ -232,6 +232,7 @@ describe('split engine', () => {
 
   test('generates upcoming recurring bills with reminder dates', () => {
     expect(getNextDueDate('2026-05-03', 'weekly')).toBe('2026-05-10')
+    expect(getNextDueDate('2026-05-03', 'fortnightly')).toBe('2026-05-17')
     expect(getNextDueDate('2026-05-03', 'monthly')).toBe('2026-06-03')
     expect(getNextDueDate('2026-05-03', 'yearly')).toBe('2027-05-03')
     expect(getReminderDate('2026-06-03', 3)).toBe('2026-05-31')

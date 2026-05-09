@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 export const splitModeSchema = z.enum(['equal', 'exact', 'percent', 'shares', 'adjustment'])
 export const expenseKindSchema = z.enum(['expense', 'settlement', 'refund', 'reimbursement', 'debt'])
-export const recurrenceSchema = z.enum(['none', 'weekly', 'monthly', 'yearly'])
+export const recurrenceSchema = z.enum(['none', 'weekly', 'fortnightly', 'monthly', 'yearly'])
 export const paymentMethodSchema = z.enum(['cash', 'upi', 'paytm', 'venmo', 'paypal', 'bank'])
 export const paymentStatusSchema = z.enum(['recorded', 'pending', 'confirmed'])
 

@@ -1,6 +1,6 @@
 export type SplitMode = 'equal' | 'exact' | 'percent' | 'shares' | 'adjustment'
 export type ExpenseKind = 'expense' | 'settlement' | 'refund' | 'reimbursement' | 'debt'
-export type Recurrence = 'none' | 'weekly' | 'monthly' | 'yearly'
+export type Recurrence = 'none' | 'weekly' | 'fortnightly' | 'monthly' | 'yearly'
 export type PaymentMethod = 'cash' | 'upi' | 'paytm' | 'venmo' | 'paypal' | 'bank'
 export type PaymentStatus = 'recorded' | 'pending' | 'confirmed'
 
@@ -947,6 +947,7 @@ export function getNextDueDate(date: string, recurrence: Recurrence): string | u
   const due = new Date(`${date}T00:00:00.000Z`)
   if (Number.isNaN(due.getTime())) return undefined
   if (recurrence === 'weekly') due.setUTCDate(due.getUTCDate() + 7)
+  if (recurrence === 'fortnightly') due.setUTCDate(due.getUTCDate() + 14)
   if (recurrence === 'monthly') due.setUTCMonth(due.getUTCMonth() + 1)
   if (recurrence === 'yearly') due.setUTCFullYear(due.getUTCFullYear() + 1)
   return due.toISOString().slice(0, 10)
