@@ -25,6 +25,7 @@ import {
   Users,
   WalletCards,
 } from 'lucide-react-native'
+import { Image } from 'react-native'
 import { Button, Input, SizableText, Text, TextArea, XStack, YStack } from 'tamagui'
 import { roundMoney } from '../domain/split'
 import {
@@ -579,6 +580,7 @@ function GroupsScreen({ state }) {
               key={group.id}
               label={group.name}
               meta={`${group.memberIds.length} members · ${group.defaultCurrency}`}
+              group={group}
               active={state.selectedGroupId === group.id}
               onPress={() => state.setSelectedGroupId(group.id)}
             />
@@ -597,8 +599,10 @@ function GroupsScreen({ state }) {
       {state.groupView === 'overview' && state.selectedGroup ? (
         <Panel title="Overview">
           <YStack gap="$3">
+            <GroupCover group={state.selectedGroup} height={148} />
             <FeatureList rows={[
               ['Group', `${state.selectedGroup.name} · ${state.selectedGroup.memberIds.length} members`],
+              ['Cover', state.selectedGroup.coverPhotoLabel ?? 'Default group identity'],
               ['Default split', `${state.selectedGroup.defaultSplitMode} for new expenses.`],
               ['Settle-up mode', state.selectedGroup.simplifyDebts ? 'Simplified debts are on.' : 'Direct pairwise debts are on.'],
               ['Restore path', 'Deleted groups are restored from More > Tools.'],
@@ -807,12 +811,34 @@ function GroupSettingsScreen({ state }) {
   return (
     <>
       <Panel title={group.name} actionLabel="Groups" onAction={state.closeGroupSettings}>
-        <FeatureList rows={[
-          ['Default split', 'Saved defaults are applied when this group starts a new expense.'],
-          ['Settle-up mode', group.simplifyDebts ? 'Simplified debts reduce payment count.' : 'Direct debts preserve pairwise IOUs.'],
-          ['Members', `${state.membersForGroup.length} people use this pattern.`],
-          ['Currency', `${group.defaultCurrency} remains the group default currency.`],
-        ]} />
+        <YStack gap="$3">
+          <GroupCover group={group} height={132} />
+          <FeatureList rows={[
+            ['Default split', 'Saved defaults are applied when this group starts a new expense.'],
+            ['Settle-up mode', group.simplifyDebts ? 'Simplified debts reduce payment count.' : 'Direct debts preserve pairwise IOUs.'],
+            ['Members', `${state.membersForGroup.length} people use this pattern.`],
+            ['Currency', `${group.defaultCurrency} remains the group default currency.`],
+          ]} />
+        </YStack>
+      </Panel>
+
+      <Panel title="Cover photo" actionLabel="Save" onAction={state.saveGroupProfile}>
+        <YStack gap="$3">
+          <Field label="Image URL">
+            <Input
+              value={state.groupCoverPhotoUrl}
+              onChangeText={state.setGroupCoverPhotoUrl}
+              placeholder="https://..."
+              autoCapitalize="none"
+              {...inputProps}
+            />
+          </Field>
+          <Field label="Label">
+            <Input value={state.groupCoverPhotoLabel} onChangeText={state.setGroupCoverPhotoLabel} placeholder="Trip receipts, rent, project bills" {...inputProps} />
+          </Field>
+          <Muted>Cover photos make busy group lists easier to scan while SplitClub keeps the controls monochrome.</Muted>
+          <SecondaryButton icon={<Camera size={16} color="#09090b" />} label="Save cover" onPress={state.saveGroupProfile} />
+        </YStack>
       </Panel>
 
       <Panel title="Settle-up mode">
@@ -2128,11 +2154,58 @@ function ExpenseRow({ expense, onPress }) {
   )
 }
 
-function GroupButton({ label, meta, active, onPress }) {
+function GroupCover({ group, height = 128 }) {
+  const hasCover = Boolean(group.coverPhotoUrl)
+  return (
+    <YStack position="relative" height={height} overflow="hidden" br="$2" borderWidth={1} borderColor="#e4e4e7" bg="#18181b">
+      {hasCover ? (
+        <Image
+          source={{ uri: group.coverPhotoUrl }}
+          resizeMode="cover"
+          style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, width: '100%', height: '100%', opacity: 0.42, filter: 'grayscale(1) contrast(1.08)' }}
+        />
+      ) : null}
+      <YStack flex={1} p="$3" jc="space-between" bg={hasCover ? 'rgba(0,0,0,0.24)' : '#18181b'}>
+        <XStack ai="center" jc="space-between" gap="$3">
+          <YStack ai="center" jc="center" h={38} w={38} br={999} bg="#ffffff">
+            <SizableText color="#09090b" size="$3" fontWeight="900">
+              {group.emoji}
+            </SizableText>
+          </YStack>
+          <SizableText color="#e4e4e7" size="$2" fontWeight="900" textTransform="uppercase">
+            {group.category}
+          </SizableText>
+        </XStack>
+        <YStack gap="$1">
+          <Text color="#ffffff" fontSize={19} lineHeight={24} fontWeight="900" numberOfLines={1}>
+            {group.name}
+          </Text>
+          <SizableText color="#d4d4d8" size="$2" numberOfLines={1}>
+            {group.coverPhotoLabel ?? `${group.memberIds.length} members · ${group.defaultCurrency}`}
+          </SizableText>
+        </YStack>
+      </YStack>
+    </YStack>
+  )
+}
+
+function GroupButton({ label, meta, group, active, onPress }) {
   return (
     <Button unstyled onPress={onPress}>
-      <XStack ai="center" jc="space-between" bg={active ? '#09090b' : '#ffffff'} borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3">
-        <YStack>
+      <XStack ai="center" jc="space-between" gap="$3" bg={active ? '#09090b' : '#ffffff'} borderWidth={1} borderColor="#e4e4e7" br="$2" p="$3">
+        {group ? (
+          <YStack position="relative" h={42} w={54} overflow="hidden" br="$2" borderWidth={1} borderColor={active ? '#3f3f46' : '#e4e4e7'} bg={active ? '#27272a' : '#f4f4f5'}>
+            {group.coverPhotoUrl ? (
+              <Image source={{ uri: group.coverPhotoUrl }} resizeMode="cover" style={{ width: '100%', height: '100%', opacity: active ? 0.62 : 0.48, filter: 'grayscale(1) contrast(1.08)' }} />
+            ) : null}
+            <YStack position="absolute" top={0} right={0} bottom={0} left={0} ai="center" jc="center">
+              <SizableText color={active ? '#ffffff' : '#09090b'} size="$2" fontWeight="900">
+                {group.emoji}
+              </SizableText>
+            </YStack>
+          </YStack>
+        ) : null}
+        <YStack flex={1} minWidth={0}>
           <Text color={active ? '#ffffff' : '#09090b'} fontSize={15} fontWeight="900">
             {label}
           </Text>

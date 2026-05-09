@@ -105,12 +105,21 @@ export const groupSchema = z.object({
   id: z.string().min(1).optional(),
   name: z.string().min(1),
   emoji: z.string().min(1).default('G'),
+  coverPhotoUrl: z.string().url().optional(),
+  coverPhotoLabel: z.string().trim().min(1).max(80).optional(),
   category: z.enum(['trip', 'home', 'couple', 'friends', 'project']).default('friends'),
   memberIds: z.array(z.string().min(1)).min(1),
   defaultCurrency: z.string().length(3).transform((value) => value.toUpperCase()).default('INR'),
   simplifyDebts: z.boolean().default(true),
   defaultSplitMode: splitModeSchema.default('equal'),
   defaultSplits: z.array(splitShareSchema).default([]),
+})
+
+export const groupProfileSchema = z.object({
+  name: z.string().min(1).optional(),
+  emoji: z.string().min(1).optional(),
+  coverPhotoUrl: z.string().url().optional().or(z.literal('')),
+  coverPhotoLabel: z.string().trim().min(1).max(80).optional().or(z.literal('')),
 })
 
 export const groupDefaultsSchema = z.object({
@@ -165,6 +174,7 @@ export const searchSchema = z.object({
 export type MemberInput = z.infer<typeof memberSchema>
 export type AccountUpdateInput = z.infer<typeof accountUpdateSchema>
 export type GroupInput = z.infer<typeof groupSchema>
+export type GroupProfileInput = z.infer<typeof groupProfileSchema>
 export type GroupDefaultsInput = z.infer<typeof groupDefaultsSchema>
 export type FriendInput = z.infer<typeof friendSchema>
 export type GroupInviteInput = z.infer<typeof groupInviteSchema>

@@ -762,6 +762,46 @@ describe('SplitClub Worker API', () => {
     expect(queueMessages.some((message) => JSON.stringify(message).includes('group.defaults.updated'))).toBe(true)
   })
 
+  test('updates group cover photo metadata with conflict protection', async () => {
+    const env = createEnv()
+
+    const groupsResponse = await request('/api/groups', {}, env)
+    const groupsBody = (await groupsResponse.json()) as { groups: Array<{ id: string; updatedAt?: string; name: string; coverPhotoUrl?: string; coverPhotoLabel?: string }> }
+    const goa = groupsBody.groups.find((group) => group.id === 'goa')
+    expect(goa).toBeTruthy()
+
+    const response = await request(
+      '/api/groups/goa/profile',
+      {
+        method: 'PUT',
+        headers: { 'x-splitclub-base-revision': goa?.updatedAt ?? goa?.name ?? 'goa' },
+        body: JSON.stringify({
+          coverPhotoUrl: 'https://images.example.com/goa-cover.jpg',
+          coverPhotoLabel: 'Goa receipts and stays',
+        }),
+      },
+      env,
+    )
+    const body = (await response.json()) as { group: { coverPhotoUrl?: string; coverPhotoLabel?: string } }
+    expect(response.status).toBe(200)
+    expect(body.group.coverPhotoUrl).toBe('https://images.example.com/goa-cover.jpg')
+    expect(body.group.coverPhotoLabel).toBe('Goa receipts and stays')
+
+    const staleResponse = await request(
+      '/api/groups/goa/profile',
+      {
+        method: 'PUT',
+        headers: { 'x-splitclub-base-revision': goa?.updatedAt ?? goa?.name ?? 'goa' },
+        body: JSON.stringify({ coverPhotoLabel: 'Stale cover label' }),
+      },
+      env,
+    )
+    const staleBody = (await staleResponse.json()) as { error: string; conflict: { recordId: string } }
+    expect(staleResponse.status).toBe(409)
+    expect(staleBody).toMatchObject({ error: 'group_conflict', conflict: { recordId: 'goa' } })
+    expect(queueMessages.some((message) => JSON.stringify(message).includes('group.profile.updated'))).toBe(true)
+  })
+
   test('rejects stale group pushes with conflict details', async () => {
     const env = createEnv()
 

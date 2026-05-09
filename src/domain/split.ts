@@ -76,6 +76,8 @@ export type Group = {
   id: string
   name: string
   emoji: string
+  coverPhotoUrl?: string
+  coverPhotoLabel?: string
   category: 'trip' | 'home' | 'couple' | 'friends' | 'project'
   memberIds: string[]
   defaultCurrency: string

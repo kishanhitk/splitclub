@@ -10,6 +10,7 @@ import type {
   GroupDefaultsInput,
   GroupInput,
   GroupInviteInput,
+  GroupProfileInput,
   MemberInput,
   MembershipInput,
   SettlementInput,
@@ -107,6 +108,7 @@ export type LedgerStore = {
   removeFriend(friendId: string, ownerId: string): Promise<void>
   listGroups(): Promise<Group[]>
   createGroup(input: GroupInput): Promise<Group>
+  updateGroupProfile(groupId: string, input: GroupProfileInput, actorId?: string): Promise<Group>
   updateGroupDefaults(groupId: string, input: GroupDefaultsInput, actorId?: string): Promise<Group>
   listDeletedGroups(memberId: string): Promise<Group[]>
   deleteGroup(groupId: string, actorId?: string): Promise<Group>
@@ -355,6 +357,8 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
         id: input.id ?? makeId('group'),
         name: input.name,
         emoji: input.emoji,
+        coverPhotoUrl: input.coverPhotoUrl,
+        coverPhotoLabel: input.coverPhotoLabel,
         category: input.category,
         memberIds: input.memberIds,
         defaultCurrency: input.defaultCurrency,
@@ -366,6 +370,26 @@ export function createMemoryLedgerStore(initialLedger: Ledger): LedgerStore {
       ledger = { ...ledger, groups: [group, ...ledger.groups] }
       audit('group', group.id, 'created', group)
       return structuredClone(group)
+    },
+    async updateGroupProfile(groupId, input, actorId) {
+      const group = ledger.groups.find((candidate) => candidate.id === groupId && !candidate.deletedAt)
+      if (!group) throw new Error('Group not found')
+      const updated = {
+        ...group,
+        name: input.name ?? group.name,
+        emoji: input.emoji ?? group.emoji,
+        coverPhotoUrl: input.coverPhotoUrl === '' ? undefined : input.coverPhotoUrl ?? group.coverPhotoUrl,
+        coverPhotoLabel: input.coverPhotoLabel === '' ? undefined : input.coverPhotoLabel ?? group.coverPhotoLabel,
+        updatedAt: now(),
+      }
+      ledger = { ...ledger, groups: ledger.groups.map((candidate) => candidate.id === groupId ? updated : candidate) }
+      audit('group', groupId, 'profile.updated', {
+        name: updated.name,
+        emoji: updated.emoji,
+        coverPhotoUrl: updated.coverPhotoUrl,
+        coverPhotoLabel: updated.coverPhotoLabel,
+      }, actorId)
+      return structuredClone(updated)
     },
     async updateGroupDefaults(groupId, input, actorId) {
       const group = ledger.groups.find((candidate) => candidate.id === groupId && !candidate.deletedAt)
@@ -759,6 +783,8 @@ type GroupRow = {
   id: string
   name: string
   emoji: string
+  cover_photo_url?: string | null
+  cover_photo_label?: string | null
   category: Group['category']
   default_currency: string
   simplify_debts: number
@@ -859,6 +885,8 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
       id: row.id,
       name: row.name,
       emoji: row.emoji,
+      coverPhotoUrl: row.cover_photo_url ?? undefined,
+      coverPhotoLabel: row.cover_photo_label ?? undefined,
       category: row.category,
       memberIds: members.results.map((member) => member.user_id),
       defaultCurrency: row.default_currency,
@@ -1215,7 +1243,7 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
     },
     async listGroups() {
       const groups = await db
-        .prepare('SELECT id, name, emoji, category, default_currency, simplify_debts, default_split_mode, updated_at, deleted_at FROM groups WHERE deleted_at IS NULL ORDER BY updated_at DESC')
+        .prepare('SELECT id, name, emoji, cover_photo_url, cover_photo_label, category, default_currency, simplify_debts, default_split_mode, updated_at, deleted_at FROM groups WHERE deleted_at IS NULL ORDER BY updated_at DESC')
         .all<GroupRow>()
       return Promise.all(groups.results.map(toGroup))
     },
@@ -1224,6 +1252,8 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
         id: input.id ?? makeId('group'),
         name: input.name,
         emoji: input.emoji,
+        coverPhotoUrl: input.coverPhotoUrl,
+        coverPhotoLabel: input.coverPhotoLabel,
         category: input.category,
         memberIds: input.memberIds,
         defaultCurrency: input.defaultCurrency,
@@ -1232,22 +1262,44 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
         defaultSplits: input.defaultSplits,
       }
       await db
-        .prepare('INSERT INTO groups (id, name, emoji, category, default_currency, simplify_debts, default_split_mode) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .bind(group.id, group.name, group.emoji, group.category, group.defaultCurrency, group.simplifyDebts ? 1 : 0, group.defaultSplitMode)
+        .prepare('INSERT INTO groups (id, name, emoji, cover_photo_url, cover_photo_label, category, default_currency, simplify_debts, default_split_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .bind(group.id, group.name, group.emoji, group.coverPhotoUrl ?? null, group.coverPhotoLabel ?? null, group.category, group.defaultCurrency, group.simplifyDebts ? 1 : 0, group.defaultSplitMode)
         .run()
       await Promise.all(group.memberIds.map((memberId) => db.prepare('INSERT INTO group_memberships (group_id, user_id) VALUES (?, ?)').bind(group.id, memberId).run()))
       await Promise.all(group.defaultSplits.map((split) => db.prepare('INSERT INTO group_default_splits (group_id, user_id, value) VALUES (?, ?, ?)').bind(group.id, split.memberId, split.value).run()))
       await audit('group', group.id, 'created', group)
       const row = await db
-        .prepare('SELECT id, name, emoji, category, default_currency, simplify_debts, default_split_mode, updated_at, deleted_at FROM groups WHERE id = ?')
+        .prepare('SELECT id, name, emoji, cover_photo_url, cover_photo_label, category, default_currency, simplify_debts, default_split_mode, updated_at, deleted_at FROM groups WHERE id = ?')
         .bind(group.id)
         .first<GroupRow>()
       if (!row) throw new Error('Group was not created')
       return toGroup(row)
     },
+    async updateGroupProfile(groupId, input, actorId) {
+      const row = await db
+        .prepare('SELECT id, name, emoji, cover_photo_url, cover_photo_label, category, default_currency, simplify_debts, default_split_mode, updated_at, deleted_at FROM groups WHERE id = ? AND deleted_at IS NULL')
+        .bind(groupId)
+        .first<GroupRow>()
+      if (!row) throw new Error('Group not found')
+      const name = input.name ?? row.name
+      const emoji = input.emoji ?? row.emoji
+      const coverPhotoUrl = input.coverPhotoUrl === '' ? undefined : input.coverPhotoUrl ?? row.cover_photo_url
+      const coverPhotoLabel = input.coverPhotoLabel === '' ? undefined : input.coverPhotoLabel ?? row.cover_photo_label
+      await db
+        .prepare('UPDATE groups SET name = ?, emoji = ?, cover_photo_url = ?, cover_photo_label = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+        .bind(name, emoji, coverPhotoUrl ?? null, coverPhotoLabel ?? null, groupId)
+        .run()
+      await audit('group', groupId, 'profile.updated', { name, emoji, coverPhotoUrl, coverPhotoLabel }, actorId)
+      const updatedRow = await db
+        .prepare('SELECT id, name, emoji, cover_photo_url, cover_photo_label, category, default_currency, simplify_debts, default_split_mode, updated_at, deleted_at FROM groups WHERE id = ?')
+        .bind(groupId)
+        .first<GroupRow>()
+      if (!updatedRow) throw new Error('Group profile was not updated')
+      return toGroup(updatedRow)
+    },
     async updateGroupDefaults(groupId, input, actorId) {
       const row = await db
-        .prepare('SELECT id, name, emoji, category, default_currency, simplify_debts, default_split_mode, updated_at, deleted_at FROM groups WHERE id = ? AND deleted_at IS NULL')
+        .prepare('SELECT id, name, emoji, cover_photo_url, cover_photo_label, category, default_currency, simplify_debts, default_split_mode, updated_at, deleted_at FROM groups WHERE id = ? AND deleted_at IS NULL')
         .bind(groupId)
         .first<GroupRow>()
       if (!row) throw new Error('Group not found')
@@ -1261,7 +1313,7 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
       }
       await audit('group', groupId, 'defaults.updated', input, actorId)
       const updatedRow = await db
-        .prepare('SELECT id, name, emoji, category, default_currency, simplify_debts, default_split_mode, updated_at, deleted_at FROM groups WHERE id = ?')
+        .prepare('SELECT id, name, emoji, cover_photo_url, cover_photo_label, category, default_currency, simplify_debts, default_split_mode, updated_at, deleted_at FROM groups WHERE id = ?')
         .bind(groupId)
         .first<GroupRow>()
       if (!updatedRow) throw new Error('Group defaults were not updated')
@@ -1270,7 +1322,7 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
     async listDeletedGroups(memberId) {
       const groups = await db
         .prepare(
-          'SELECT g.id, g.name, g.emoji, g.category, g.default_currency, g.simplify_debts, g.default_split_mode, g.updated_at, g.deleted_at FROM groups g INNER JOIN group_memberships gm ON gm.group_id = g.id WHERE g.deleted_at IS NOT NULL AND gm.user_id = ? ORDER BY g.updated_at DESC',
+          'SELECT g.id, g.name, g.emoji, g.cover_photo_url, g.cover_photo_label, g.category, g.default_currency, g.simplify_debts, g.default_split_mode, g.updated_at, g.deleted_at FROM groups g INNER JOIN group_memberships gm ON gm.group_id = g.id WHERE g.deleted_at IS NOT NULL AND gm.user_id = ? ORDER BY g.updated_at DESC',
         )
         .bind(memberId)
         .all<GroupRow>()
@@ -1278,7 +1330,7 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
     },
     async deleteGroup(groupId, actorId) {
       const row = await db
-        .prepare('SELECT id, name, emoji, category, default_currency, simplify_debts, default_split_mode, updated_at, deleted_at FROM groups WHERE id = ? AND deleted_at IS NULL')
+        .prepare('SELECT id, name, emoji, cover_photo_url, cover_photo_label, category, default_currency, simplify_debts, default_split_mode, updated_at, deleted_at FROM groups WHERE id = ? AND deleted_at IS NULL')
         .bind(groupId)
         .first<GroupRow>()
       if (!row) throw new Error('Group not found')
@@ -1286,7 +1338,7 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
       await db.prepare('UPDATE groups SET deleted_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(deletedAt, groupId).run()
       await audit('group', groupId, 'deleted', { deletedAt }, actorId)
       const deletedRow = await db
-        .prepare('SELECT id, name, emoji, category, default_currency, simplify_debts, default_split_mode, updated_at, deleted_at FROM groups WHERE id = ?')
+        .prepare('SELECT id, name, emoji, cover_photo_url, cover_photo_label, category, default_currency, simplify_debts, default_split_mode, updated_at, deleted_at FROM groups WHERE id = ?')
         .bind(groupId)
         .first<GroupRow>()
       if (!deletedRow) throw new Error('Group was not deleted')
@@ -1294,14 +1346,14 @@ export function createD1LedgerStore(db: D1Database): LedgerStore {
     },
     async restoreGroup(groupId, actorId) {
       const row = await db
-        .prepare('SELECT id, name, emoji, category, default_currency, simplify_debts, default_split_mode, updated_at, deleted_at FROM groups WHERE id = ?')
+        .prepare('SELECT id, name, emoji, cover_photo_url, cover_photo_label, category, default_currency, simplify_debts, default_split_mode, updated_at, deleted_at FROM groups WHERE id = ?')
         .bind(groupId)
         .first<GroupRow>()
       if (!row) throw new Error('Group not found')
       await db.prepare('UPDATE groups SET deleted_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(groupId).run()
       await audit('group', groupId, 'restored', { restoredAt: now() }, actorId)
       const restoredRow = await db
-        .prepare('SELECT id, name, emoji, category, default_currency, simplify_debts, default_split_mode, updated_at, deleted_at FROM groups WHERE id = ?')
+        .prepare('SELECT id, name, emoji, cover_photo_url, cover_photo_label, category, default_currency, simplify_debts, default_split_mode, updated_at, deleted_at FROM groups WHERE id = ?')
         .bind(groupId)
         .first<GroupRow>()
       if (!restoredRow) throw new Error('Group was not restored')
