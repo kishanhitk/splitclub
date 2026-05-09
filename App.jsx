@@ -148,6 +148,8 @@ function SplitClubApp() {
   const [groupDefaultMode, setGroupDefaultMode] = useState('equal')
   const [groupDefaultValues, setGroupDefaultValues] = useState({})
   const [groupSimplifyDebts, setGroupSimplifyDebts] = useState(true)
+  const [groupCoverPhotoUrl, setGroupCoverPhotoUrl] = useState('')
+  const [groupCoverPhotoLabel, setGroupCoverPhotoLabel] = useState('')
   const [membershipRoles, setMembershipRoles] = useState({
     goa: { kishan: 'owner', anya: 'member', dev: 'member', mia: 'viewer' },
     flat: { kishan: 'owner', anya: 'admin', dev: 'member' },
@@ -457,6 +459,8 @@ function SplitClubApp() {
     setGroupDefaultMode(selectedGroup.defaultSplitMode)
     setGroupDefaultValues(splitsToValues(selectedGroup.defaultSplits, selectedGroup.memberIds, selectedGroup.defaultSplitMode, Number(amount)))
     setGroupSimplifyDebts(selectedGroup.simplifyDebts)
+    setGroupCoverPhotoUrl(selectedGroup.coverPhotoUrl ?? '')
+    setGroupCoverPhotoLabel(selectedGroup.coverPhotoLabel ?? '')
     setGroupSettingsOpen(true)
   }
 
@@ -499,6 +503,32 @@ function SplitClubApp() {
       defaultSplitMode: groupDefaultMode,
       defaultSplits,
     }, 'Group defaults', 'PUT', { baseRevision }).catch(() => undefined)
+  }
+
+  const saveGroupProfile = () => {
+    if (!selectedGroup) return
+    const coverPhotoUrl = groupCoverPhotoUrl.trim()
+    const coverPhotoLabel = groupCoverPhotoLabel.trim()
+    const baseRevision = groupRevision(selectedGroup)
+    const updatedAt = new Date().toISOString()
+    setLedger((current) => ({
+      ...current,
+      groups: current.groups.map((group) =>
+        group.id === selectedGroup.id
+          ? {
+              ...group,
+              coverPhotoUrl: coverPhotoUrl || undefined,
+              coverPhotoLabel: coverPhotoLabel || undefined,
+              updatedAt,
+            }
+          : group,
+      ),
+    }))
+    setSyncState('Group cover saved')
+    pushCloudJson(`/api/groups/${selectedGroup.id}/profile`, {
+      coverPhotoUrl,
+      coverPhotoLabel,
+    }, 'Group profile', 'PUT', { baseRevision }).catch(() => undefined)
   }
 
   const openExpense = (expense) => {
@@ -1906,8 +1936,13 @@ function SplitClubApp() {
     setGroupDefaultValue,
     groupSimplifyDebts,
     setGroupSimplifyDebts,
+    groupCoverPhotoUrl,
+    setGroupCoverPhotoUrl,
+    groupCoverPhotoLabel,
+    setGroupCoverPhotoLabel,
     groupDefaultValidation,
     saveGroupDefaults,
+    saveGroupProfile,
     activeGroups,
     deletedGroups,
     selectedGroupId,

@@ -7,6 +7,8 @@ Primary sources:
 - Splitwise homepage: https://www.splitwise.com/index
 - Splitwise help overview: https://feedback.splitwise.com/knowledgebase/articles/1088920-how-do-i-use-splitwise
 - Splitwise Pro page: https://www.splitwise.com/subscriptions/new
+- Splitwise redesign blog: https://blog.splitwise.com/2019/07/09/splitwise-redesigned/
+- Splitwise Google Play listing: https://play.google.com/store/apps/details?id=com.Splitwise.SplitwiseMobile
 - Splitwise help index: https://feedback.splitwise.com/knowledgebase/articles/all
 - Percentage splits: https://feedback.splitwise.com/knowledgebase/articles/77463-can-i-split-an-expense-by-percentages
 - Currency conversion: https://feedback.splitwise.com/knowledgebase/articles/301146-can-splitwise-do-currency-conversion-between-multi
@@ -18,7 +20,7 @@ Primary sources:
 SplitClub should cover the following Splitwise-style capabilities:
 
 - Account and profile basics: friends, names, emails or phones, privacy-aware expense visibility.
-- Groups: trips, apartments, couples, friends, family, group settings, group invite and membership management.
+- Groups: trips, apartments, couples, friends, family, group settings, group cover photos, group invite and membership management.
 - Non-group expenses: one-off bills between arbitrary friends without creating a permanent group.
 - Expense creation: description, amount, payer, date, category, notes, attachment, receipt image.
 - Split modes: equal, exact amounts, percentages, relative shares, adjustments, refunds, reimbursements, and recorded debts.
@@ -50,6 +52,7 @@ SplitClub should cover the following Splitwise-style capabilities:
 - Cloud sync conflicts keep local and remote record details so users can resolve each conflict by keeping the cloud copy or restoring the local copy.
 - Expense edit/delete/restore pushes include base revisions and the Worker returns actionable 409 conflicts when the cloud copy changed first.
 - Group defaults/delete/restore pushes also include base revisions and get actionable 409 conflicts for stale cloud writes.
+- Groups include cover photo metadata and labels for Splitwise-style visual identity, with mobile group cards and conflict-safe cloud profile updates.
 - Core expense and settlement mutations can push to the Worker when API/auth are configured, while preserving local-first behavior offline.
 - Collaboration mutations now share the same local-first push path for friends, group invites, role changes, member removals, group defaults, and group delete/restore actions.
 - Friend profiles can be edited or removed from the mobile UI, with Worker routes returning member conflicts when the cloud copy changed first.

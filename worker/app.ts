@@ -8,6 +8,7 @@ import {
   expenseCommentSchema,
   expenseUpdateSchema,
   groupDefaultsSchema,
+  groupProfileSchema,
   friendSchema,
   groupSchema,
   groupInviteSchema,
@@ -473,6 +474,18 @@ export function createApp() {
     const group = await getStore(c.env).createGroup({ ...payload, memberIds: [...new Set([member.id, ...payload.memberIds])] })
     await c.env.SYNC_QUEUE?.send({ type: 'group.created', groupId: group.id, createdAt: new Date().toISOString() })
     return c.json({ group }, 201)
+  })
+
+  app.put('/api/groups/:id/profile', async (c) => {
+    const store = getStore(c.env)
+    const member = currentMember(c.get('authMember'))
+    const group = await requireGroupAccess(store, member.id, c.req.param('id'))
+    const conflict = groupConflictResponse(c, group)
+    if (conflict) return conflict
+    const payload = groupProfileSchema.parse(await c.req.json())
+    const updated = await store.updateGroupProfile(group.id, payload, member.id)
+    await c.env.SYNC_QUEUE?.send({ type: 'group.profile.updated', groupId: updated.id, createdAt: new Date().toISOString() })
+    return c.json({ group: updated })
   })
 
   app.get('/api/groups/deleted', async (c) => {
