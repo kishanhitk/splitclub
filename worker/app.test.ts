@@ -451,11 +451,43 @@ describe('SplitClub Worker API', () => {
   test('lists posts and skips recurring schedules with history', async () => {
     const env = createEnv()
 
+    const fortnightlyResponse = await request(
+      '/api/expenses',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          groupId: 'goa',
+          description: 'Cleaner visit',
+          amount: 2800,
+          currency: 'INR',
+          paidBy: 'kishan',
+          participants: ['kishan', 'anya'],
+          splitMode: 'equal',
+          splits: [],
+          category: 'Home',
+          kind: 'expense',
+          date: '2026-05-09',
+          recurrence: 'fortnightly',
+          reminderDays: 2,
+        }),
+      },
+      env,
+    )
+    const fortnightlyBody = (await fortnightlyResponse.json()) as { expense: { id: string; recurrence: string } }
+    expect(fortnightlyResponse.status).toBe(201)
+    expect(fortnightlyBody.expense.recurrence).toBe('fortnightly')
+
     const schedulesResponse = await request('/api/recurring', {}, env)
     const schedulesBody = (await schedulesResponse.json()) as {
-      schedules: Array<{ sourceExpenseId: string; dueDate: string; history: unknown[] }>
+      schedules: Array<{ sourceExpenseId: string; dueDate: string; reminderDate?: string; recurrence: string; history: unknown[] }>
     }
     expect(schedulesResponse.status).toBe(200)
+    expect(schedulesBody.schedules.find((schedule) => schedule.sourceExpenseId === fortnightlyBody.expense.id)).toMatchObject({
+      dueDate: '2026-05-23',
+      reminderDate: '2026-05-21',
+      recurrence: 'fortnightly',
+      history: [],
+    })
     expect(schedulesBody.schedules.find((schedule) => schedule.sourceExpenseId === 'e3')).toMatchObject({
       dueDate: '2026-06-03',
       history: [],

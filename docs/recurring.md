@@ -1,6 +1,6 @@
 # Recurring Bills
 
-SplitClub recurring bills are modeled as normal expenses with `recurrence` and optional `reminderDays`.
+SplitClub recurring bills are modeled as normal expenses with `recurrence` and optional `reminderDays`. Supported intervals are weekly, fortnightly, monthly, and yearly.
 
 ## Worker Routes
 
